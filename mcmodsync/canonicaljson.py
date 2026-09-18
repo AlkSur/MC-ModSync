@@ -46,23 +46,25 @@ def _have_cryptography() -> bool:
 
 
 def sign(obj: Dict[str, Any], privkey_pem: bytes) -> Dict[str, Any]:
-    """Sign a dict with an Ed25519 private key (PEM); returns dict with signature."""
+    """Sign a dict with an Ed25519 private key (PEM); returns dict with signature.
+
+    A 端专用：cryptography 实现统一落在 signing.py（[6] 契约）。
+    """
     if not _have_cryptography():
         raise RuntimeError("签名需要 cryptography 库（仅脚本 A 允许）")
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from . import signing
 
-    key = load_pem_private_key(privkey_pem, password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("私钥不是 Ed25519 类型")
-    sig = key.sign(canonical(strip_signature(obj)))
+    sig = signing.sign(canonical(strip_signature(obj)), privkey_pem)
     out = dict(obj)
     out["signature"] = {"alg": _ALG, "value": base64.b64encode(sig).decode("ascii")}
     return out
 
 
 def verify(obj: Dict[str, Any], pubkey_b64: str) -> bool:
-    """Verify signature of *obj* with Base64 raw Ed25519 public key."""
+    """Verify signature of *obj* with Base64 raw Ed25519 public key.
+
+    双分派: 有 cryptography -> signing.verify（A 端）；否则 -> ed25519_min（C 端，纯标准库）。
+    """
     sig_obj = obj.get("signature") or {}
     if sig_obj.get("alg") != _ALG:
         return False
@@ -71,28 +73,17 @@ def verify(obj: Dict[str, Any], pubkey_b64: str) -> bool:
         pub = base64.b64decode(pubkey_b64, validate=True)
     except Exception:
         return False
-    if len(pub) != 32:
+    if len(pub) != 32 or len(sig) != 64:
         return False
     msg = canonical(strip_signature(obj))
     if _have_cryptography():
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-        from cryptography.exceptions import InvalidSignature
-        try:
-            Ed25519PublicKey.from_public_bytes(pub).verify(sig, msg)
-            return True
-        except InvalidSignature:
-            return False
+        from . import signing
+        return signing.verify(msg, sig, pubkey_b64)
     from . import ed25519_min
     return ed25519_min.verify(pub, sig, msg)
 
 
 def public_key_b64_from_private(privkey_pem: bytes) -> str:
     """Derive Base64 raw public key from a PEM private key (A side)."""
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    key = load_pem_private_key(privkey_pem, password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("私钥不是 Ed25519 类型")
-    pub = key.public_key().public_bytes_raw()
-    return base64.b64encode(pub).decode("ascii")
+    from . import signing
+    return signing.public_key_b64_from_private(privkey_pem)
