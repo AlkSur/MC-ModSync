@@ -30,5 +30,8 @@ jobs:
       - name: 单文件 B Python 3.8 语法检查
         run: python -c "import ast;ast.parse(open('server/mcmodsync-b.py',encoding='utf-8').read(),feature_version=(3,8))"
 
+      - name: C 端依赖检查（产物不得 import boto3/paramiko/cryptography）
+        run: python tools/check_c_deps.py
+
       - name: Test
         run: python -m pytest
