@@ -24,5 +24,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
+      - name: B 单文件防漂移（重新生成与仓库版本一致）
+        run: python tools/build_server.py --check
+
+      - name: 单文件 B Python 3.8 语法检查
+        run: python -c "import ast;ast.parse(open('server/mcmodsync-b.py',encoding='utf-8').read(),feature_version=(3,8))"
+
       - name: Test
         run: python -m pytest
