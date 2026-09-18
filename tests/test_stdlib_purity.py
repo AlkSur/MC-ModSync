@@ -24,6 +24,10 @@ MODULES = [
     "mcmodsync.manifest",
     "mcmodsync.locking",
     "mcmodsync.canonicaljson",
+    # C 端（T-40/T-41）同样要求纯标准库：
+    "mcmodsync.http_download",
+    "mcmodsync.ed25519_min",
+    "mcmodsync.client",
 ]
 FILES = {
     "mcmodsync.hashing": REPO_ROOT / "mcmodsync" / "hashing.py",
@@ -32,6 +36,9 @@ FILES = {
     "mcmodsync.manifest": REPO_ROOT / "mcmodsync" / "manifest.py",
     "mcmodsync.locking": REPO_ROOT / "mcmodsync" / "locking.py",
     "mcmodsync.canonicaljson": REPO_ROOT / "mcmodsync" / "canonicaljson.py",
+    "mcmodsync.http_download": REPO_ROOT / "mcmodsync" / "http_download.py",
+    "mcmodsync.ed25519_min": REPO_ROOT / "mcmodsync" / "ed25519_min.py",
+    "mcmodsync.client": REPO_ROOT / "mcmodsync" / "client.py",
 }
 BLOCKED_ROOTS = ("boto3", "botocore", "paramiko", "cryptography", "nacl", "requests")
 
