@@ -59,9 +59,10 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
             if os.path.exists(tmp):
                 os.remove(tmp)
             _fetch(url, tmp)
-            os.replace(tmp, dst)
-            if not verify_fn(dst):
+            # 先校验临时文件，通过后才原子落位；失败不污染 dst。
+            if not verify_fn(tmp):
                 raise DownloadError(5, "下载内容校验失败: %s" % url)
+            os.replace(tmp, dst)
             return
         except Exception as e:
             last_err = e
@@ -76,6 +77,32 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
         except OSError:
             pass
     raise DownloadError(EXIT_NETWORK, "下载重试耗尽: %s (%s)" % (url, last_err))
+
+
+def _verify_file(path: str, expected_sha: str, expected_size: int) -> bool:
+    import hashlib
+    h = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as f:
+        while True:
+            block = f.read(1024 * 1024)
+            if not block:
+                break
+            h.update(block)
+            size += len(block)
+    return h.hexdigest() == expected_sha and size == expected_size
+
+
+def download(url: str, dst: str, expected_sha: str, expected_size: int,
+             retries: int = 3, log: Optional[Callable[[str], None]] = None) -> None:
+    """契约入口（[6]/[T-20]）: 下载单文件 -> 校验 sha256 与 size -> 原子落位。
+
+    失败（网络 / HTTP 错误 / 校验不符）整文件重试，指数退避；耗尽后抛
+    DownloadError(exit_code=5)。无断点续传。
+    """
+    download_one(url, dst, expected_sha, expected_size,
+                 lambda p: _verify_file(p, expected_sha, expected_size),
+                 retries=retries, log=log)
 
 
 def download_blobs(tasks: List[Dict], blob_base: str, staging: str,

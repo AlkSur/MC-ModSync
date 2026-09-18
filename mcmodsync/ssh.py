@@ -52,7 +52,9 @@ class SSHClient:
             kwargs["password"] = password
         try:
             self._client.connect(**kwargs)
-        except paramiko.SSHException as e:
+        except Exception as e:
+            # 覆盖 paramiko.SSHException（含主机密钥被拒）与 socket 层连接错误
+            # （NoValidConnectionsError / timeout 等）及认证失败。
             raise SSHError("SSH 连接失败: %s" % e)
         # if not accepting new hosts and server was unknown, connect() would have
         # raised; with AutoAdd the key is now saved in-memory only for this run.
@@ -94,6 +96,16 @@ class SSHClient:
             self._ensure_sftp().put(local, remote)
         except Exception as e:
             raise SSHError("SFTP 上传失败 %s -> %s: %s" % (local, remote, e))
+
+    def get(self, remote: str, local: str) -> None:
+        """SFTP 下载远端文件到本地（自动创建本地父目录）。"""
+        d = os.path.dirname(os.path.abspath(local))
+        if d:
+            os.makedirs(d, exist_ok=True)
+        try:
+            self._ensure_sftp().get(remote, local)
+        except Exception as e:
+            raise SSHError("SFTP 下载失败 %s -> %s: %s" % (remote, local, e))
 
     def remove(self, remote: str) -> None:
         try:
