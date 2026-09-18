@@ -231,6 +231,57 @@ def test_lock_manual_missing_file_reports(env, fake_providers) -> None:
     assert any("源目录未找到人工放入的文件" in m for m in logs)
 
 
+def test_banned_mod_gains_resolved_fileName_and_source_manual(env, fake_providers) -> None:
+    """禁第三方下载的条目必须把平台解析到的文件名回写进 lock，人工才知道该放哪个文件。"""
+    (env["lock"]).write_text(json.dumps({
+        "schemaVersion": 1,
+        "packMeta": {"minecraftVersion": "1.21.1", "loader": "neoforge"},
+        "mods": [{"name": "禁分发", "side": "client", "source": "curseforge",
+                  "projectSlug": "cf-nodl", "versionPin": "latest"}],
+    }, ensure_ascii=False), encoding="utf-8")
+    logs = []
+    assert fetcher.fetch_mods(env["cfg"], str(env["lock"]), log=logs.append,
+                              tmp_dir=str(env["tmp"] / "tmp")) == 0
+    entry = json.loads(env["lock"].read_text(encoding="utf-8"))["mods"][0]
+    assert entry["source"] == "manual"
+    assert entry["fileName"] == "manual-x.jar", "应继承平台解析到的文件名"
+    assert any("manual-x.jar" in m for m in logs), "人工清单里必须显示确切目标文件名"
+
+
+def test_lock_manual_matches_by_slug_fallback(env, fake_providers) -> None:
+    """lock 里没有 fileName 时，用 projectSlug 规范化子串做确定性兜底匹配。"""
+    (env["lock"]).write_text(json.dumps({
+        "schemaVersion": 1,
+        "packMeta": {"minecraftVersion": "1.21.1", "loader": "neoforge"},
+        "mods": [{"name": "某禁分发 mod", "side": "client", "source": "manual",
+                  "projectSlug": "some-mod", "versionPin": "manual"}],
+    }, ensure_ascii=False), encoding="utf-8")
+    data = b"MANUAL-BY-SLUG"
+    (env["client"] / "some-mod-1.2.3.jar").write_bytes(data)
+    logs = []
+    assert fetcher.fetch_mods(env["cfg"], str(env["lock"]), lock_manual=True,
+                              log=logs.append, tmp_dir=str(env["tmp"] / "tmp")) == 0
+    entry = json.loads(env["lock"].read_text(encoding="utf-8"))["mods"][0]
+    assert entry["sha256"] == _sha(data) and entry["size"] == len(data)
+    assert entry["fileName"] == "some-mod-1.2.3.jar"
+
+
+def test_lock_manual_version_not_polluted_by_jar_suffix(env, fake_providers) -> None:
+    """形如 xxx-1.12.4-mc1.21.1.jar 的文件名，resolvedVersion 不得带 .jar。"""
+    (env["lock"]).write_text(json.dumps({
+        "schemaVersion": 1,
+        "packMeta": {"minecraftVersion": "1.21.1", "loader": "neoforge"},
+        "mods": [{"name": "某禁分发 mod", "side": "client", "source": "manual",
+                  "projectSlug": "nea", "versionPin": "manual",
+                  "fileName": "notenoughanimations-neoforge-1.12.4-mc1.21.1.jar"}],
+    }, ensure_ascii=False), encoding="utf-8")
+    (env["client"] / "notenoughanimations-neoforge-1.12.4-mc1.21.1.jar").write_bytes(b"X")
+    assert fetcher.fetch_mods(env["cfg"], str(env["lock"]), lock_manual=True,
+                              log=lambda m: None, tmp_dir=str(env["tmp"] / "tmp")) == 0
+    ver = json.loads(env["lock"].read_text(encoding="utf-8"))["mods"][0]["resolvedVersion"]
+    assert ver == "1.12.4-mc1.21.1", ver
+
+
 def test_lock_stale_hint(env, fake_providers) -> None:
     m = os.path.getmtime(env["lock"])
     jar = env["server"] / "newer.jar"

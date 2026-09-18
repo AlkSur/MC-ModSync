@@ -140,9 +140,10 @@ def _resolve_one(entry: dict, pack_meta: dict, cfg, upgrade: bool,
         raise FetchError(e.exit_code, str(e))
 
 
-def _manual_entry(entry: dict, project_url: str, note: str) -> dict:
+def _manual_entry(entry: dict, project_url: str, note: str,
+                  info: Optional[dict] = None) -> dict:
     return {"name": entry.get("name") or entry.get("projectSlug"),
-            "fileName": entry.get("fileName"),
+            "fileName": entry.get("fileName") or (info or {}).get("fileName"),
             "projectUrl": project_url,
             "note": note}
 
@@ -189,7 +190,11 @@ def fetch_mods(cfg, lock_path: str, upgrade: bool = False, lock_manual: bool = F
             entry["source"] = "manual"
             entry["downloadUrl"] = url
             entry["note"] = note
-            manual.append(_manual_entry(entry, url, note))
+            # 人工闭环的匹配键：把平台解析到的文件名回写进 lock，
+            # 否则 OP 不知道该放哪个文件名、--lock-manual 也无从匹配。
+            if not entry.get("fileName") and (info or {}).get("fileName"):
+                entry["fileName"] = info["fileName"]
+            manual.append(_manual_entry(entry, url, note, info))
             continue
 
         dirs = side_dirs(cfg, entry.get("side") or "server")
@@ -287,6 +292,12 @@ def _summary(log, updated: List[str], skipped: List[str], manual: List[dict],
 _VER_RE = re.compile(r"(\d+\.\d+(?:\.\d+)*(?:[-+][0-9A-Za-z._-]*)?)")
 
 
+def _norm_token(s: str) -> str:
+    """规范化用于匹配的 token：仅保留字母数字并转小写（如 'not-enough-animations'
+    -> 'notenoughanimations'，可与 notenoughanimations-neoforge-1.12.4... 匹配）。"""
+    return re.sub(r"[^0-9a-z]+", "", (s or "").lower())
+
+
 def _lock_manual(doc: dict, lock_path: str, cfg, updated: List[str], skipped: List[str],
                  manual: List[dict], log) -> int:
     """扫描源目录，匹配 manual 条目并回写 sha256/size/resolvedVersion。"""
@@ -311,6 +322,12 @@ def _lock_manual(doc: dict, lock_path: str, cfg, updated: List[str], skipped: Li
         matches = candidates.get(want or "", [])
         if not matches and want:
             matches = [p for n, ps in candidates.items() if want in n for p in ps]
+        if not matches:
+            # 兜底: lock 里没有 fileName 时，用 projectSlug 的规范化子串做确定性筛选
+            # （仍遵循「禁止自动猜测」: 命中多于一个且内容不一致 -> 交人工，不自行选择）
+            slug = _norm_token(entry.get("projectSlug") or "")
+            if slug:
+                matches = [p for n, ps in candidates.items() if slug in _norm_token(n) for p in ps]
         if len(matches) > 1:
             # side=both 会在两个源目录各放一份；内容一致则视为唯一
             if len({_sha_of(p) for p in matches}) != 1:
@@ -329,7 +346,10 @@ def _lock_manual(doc: dict, lock_path: str, cfg, updated: List[str], skipped: Li
         entry["sha256"] = str(info["sha256"])
         entry["size"] = int(info["size"])
         m = _VER_RE.search(entry["fileName"])
-        entry["resolvedVersion"] = m.group(1) if m else None
+        ver = m.group(1) if m else None
+        if ver and ver.lower().endswith(".jar"):     # 避免把扩展名当版本号的一部分
+            ver = ver[:-4]
+        entry["resolvedVersion"] = ver
         if m is None:
             entry["note"] = ((entry.get("note") or "") + " 无法从文件名解析版本号，resolvedVersion 留空")
         updated.append(entry.get("name") or entry["fileName"])
