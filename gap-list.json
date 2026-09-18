@@ -196,14 +196,14 @@
     },
     {
       "模块": "entries/更新mod.bat",
-      "状态": "缺失",
-      "缺口描述": "Windows 入口脚本未落盘（原文见计划 [12.1]）。",
+      "状态": "完成",
+      "缺口描述": "T-42 按 [12.1] 原文逐字落档（CRLF）：chcp 65001 / cd /d %~dp0 / set \"TARGET=%CD%\" / 调 _updater\\mcmodsync.exe sync --target \"%TARGET%\" %* / RC 捕获 / 成功失败提示 / findstr --no-pause 否则 pause / exit /b %RC%；禁止 --target \"%~dp0\"。tests/test_entries.py 覆盖逐字一致、换行符与 cmd.exe 实执行（桩替换 exe）行为。",
       "归属任务": "T-42"
     },
     {
       "模块": "entries/更新mod.sh",
-      "状态": "缺失",
-      "缺口描述": "Linux 入口脚本未落盘（原文见计划 [12.2]）。",
+      "状态": "完成",
+      "缺口描述": "T-42 按 [12.2] 原文逐字落档（LF）：优先 _updater/mcmodsync-linux，否则 python3 _updater/mcmodsync.py；退出码透传；grep --no-pause 否则 read 等待。tests/test_entries.py 以真实 sh 验证参数/退出码透传、暂停门控（阻塞 vs 立即退出）、python3 回退分支与空格/中文路径。",
       "归属任务": "T-42"
     },
     {
@@ -214,8 +214,8 @@
     },
     {
       "模块": "tests/fixtures/",
-      "状态": "部分",
-      "缺口描述": "目录存在；B 端测试使用 bharness.py 动态构造夹具，暂未落静态 fixture。",
+      "状态": "完成",
+      "缺口描述": "T-43 核对：目录有意保持为空——夹具全部由 tests/bharness.py（单文件 B）与 tests/charness.py（C 端本地对象存储替身 + 实例目录构造）动态生成，无需静态 fixture。",
       "归属任务": "阶段1~4",
       "阶段1更新": "2026-09-18 T-10/T-11/T-12 后"
     },
