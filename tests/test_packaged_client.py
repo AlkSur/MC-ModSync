@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 import shutil
@@ -17,7 +16,7 @@ import sys
 import pytest
 from charness import PACK_ID, Cloud, make_keys
 
-from mcmodsync import client
+from mcmodsync import client, packaging
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG = os.path.join(REPO, "dist", "client-package")
@@ -29,14 +28,6 @@ CMD = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd
 pytestmark = pytest.mark.skipif(
     not os.path.isfile(EXE),
     reason="未构建分发包（先运行 tools/package_client.py）")
-
-
-def _load_package_client():
-    path = os.path.join(REPO, "tools", "package_client.py")
-    spec = importlib.util.spec_from_file_location("_pkgclient", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def _run(argv, cwd=None, env=None):
@@ -92,12 +83,11 @@ def test_exe_runs_and_lists_commands() -> None:
 
 
 def test_exe_bundles_no_banned_modules() -> None:
-    pc = _load_package_client()
-    names, how = pc.bundled_modules(EXE)
+    names, how = packaging.bundled_modules(EXE)
     if names is None:
         pytest.skip("无法读取 exe 归档: %s" % how)
     roots = {n.split(".")[0].lower() for n in names}
-    bad = sorted(r for r in roots if r in pc.BANNED_MODULES)
+    bad = sorted(r for r in roots if r in packaging.BANNED_MODULES)
     assert not bad, "exe 内检出应排除模块: %s" % bad
 
 

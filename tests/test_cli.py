@@ -1,6 +1,7 @@
 """T-23: cli.py —— keygen / doctor / 分发与必填校验。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -98,8 +99,36 @@ def test_main_publish_client_without_version_returns_1(tmp_path) -> None:
     assert cli.main(["publish-client", "-c", str(tmp_path / "nope.json")]) == 1
 
 
-def test_main_package_client_placeholder() -> None:
+def test_main_package_client_missing_config() -> None:
+    # 配置缺失 -> 码 1（不再有「占位」实现，T-50 已实装）
     assert cli.main(["package-client", "-c", "nope.json"]) == 1
+
+
+def test_main_package_client_no_exe_assembles(tmp_path, monkeypatch) -> None:
+    """package-client --no-exe: 组装 .py 兜底 + config.json + SHA256SUMS。"""
+    from mcmodsync import packaging
+
+    fb = tmp_path / "fallback.py"
+    fb.write_text("# fallback stub\n", encoding="utf-8")
+    pack = tmp_path / "pack.json"
+    pack.write_text(json.dumps({"packId": "demo-pack",
+                                "client": {"manifestUrl": "https://h/p/manifest.json",
+                                           "publicKey": "PUBKEY"}}), encoding="utf-8")
+    out = tmp_path / "pkg"
+    rc = cli.main(["package-client", "-c", str(pack), "--out", str(out),
+                   "--no-exe", "--fallback", str(fb)])
+    assert rc == 0
+    assert (out / "更新mod.bat").is_file()
+    assert (out / "更新mod.sh").is_file()
+    assert (out / "_updater" / "mcmodsync.py").read_text(encoding="utf-8") == "# fallback stub\n"
+    cfg = json.loads((out / "_updater" / "config.json").read_text(encoding="utf-8"))
+    assert cfg["packId"] == "demo-pack" and cfg["schemaVersion"] == 1
+    assert (out / "SHA256SUMS.txt").is_file()
+    # 校验和逐条复核
+    for line in (out / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
+        sha, rel = line.split("  ", 1)
+        data = (out / rel).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == sha
 
 
 def test_main_fetch_mods_bad_config_returns_1(tmp_path) -> None:
