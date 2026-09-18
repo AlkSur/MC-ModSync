@@ -157,8 +157,8 @@
     },
     {
       "模块": "mcmodsync/client.py",
-      "状态": "缺失",
-      "缺口描述": "C 端 sync/verify/rollback/doctor 逻辑未实现。",
+      "状态": "完成",
+      "缺口描述": "T-40 已实现 C 端 sync/verify/rollback/doctor（纯标准库）：15 步 sync（锁 10 / 配置 1 / 游戏检测 3 / 验签 2 / 兼容闸 6,7 / 回退警告 / 规划含改名零下载 / 路径 13 与磁盘 4 / 并发下载 5 / 备份 + changes.json / 临时文件+os.replace / 原子 state / 清理 / 中文摘要）；rollback 三类反向 + rollback-drift 漂移保护；故障注入 after-backup|mid-apply|after-state（码 99）。tests/charness.py + tests/test_client.py 共 27 例，覆盖 TL-5 全部条目。",
       "归属任务": "T-40"
     },
     {
