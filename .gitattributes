@@ -1,0 +1,3 @@
+# 计划 [3] 要求所有 JSON 为 UTF-8/LF；仓库内文本文件统一按 LF 检出，
+# 避免 Windows 端 core.autocrlf 转换破坏 LF 约定。
+* text=auto eol=lf
