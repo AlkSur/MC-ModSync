@@ -145,14 +145,14 @@
     },
     {
       "模块": "mcmodsync/provider_modrinth.py",
-      "状态": "缺失",
-      "缺口描述": "Modrinth API（纯 urllib）未实现。",
+      "状态": "完成",
+      "缺口描述": "T-31 已实现 Modrinth API（纯 urllib）：loaders/game_versions 过滤、versionPin 语义、primary 文件优先、下载后实算 sha256/size、429 指数退避重试 3 次；mock 10 例 + 真机拉取 JEI 通过。",
       "归属任务": "T-31"
     },
     {
       "模块": "mcmodsync/provider_curseforge.py",
-      "状态": "缺失",
-      "缺口描述": "CurseForge API（纯 urllib + x-api-key）未实现。",
+      "状态": "完成",
+      "缺口描述": "T-32 已实现 CurseForge API（纯 urllib + x-api-key）：search_mod / list_files(modLoaderType=6) / pick_file / resolve（downloadUrl 空 -> manualNeeded）/ download_file / fetch；401/403 -> KeyInvalidError 并跳过该源；429 退避重试；日志打码。mock 12 例 + 真机 3 例（JEI 真实下载 2156268B / not-enough-animations 25/25 downloadUrl 空 -> manualNeeded）全部通过。",
       "归属任务": "T-32"
     },
     {
