@@ -13,6 +13,22 @@ class ConfigError(Exception):
     pass
 
 
+class Config(dict):
+    """配置对象（[6]/[T-20] 契约的 load_config(path) -> Config）。
+
+    既是 dict（兼容既有下标访问 cfg["server"]），也支持顶层属性访问 cfg.server。
+    """
+
+    def __getattr__(self, item: str):
+        try:
+            return self[item]
+        except KeyError:
+            raise AttributeError(item)
+
+    def __setattr__(self, key: str, value: object) -> None:
+        self[key] = value
+
+
 _REQUIRED_TOP = ("packId",)
 _REQUIRED_SERVER = ("host", "port", "user", "serverDir", "sourceModsDir",
                     "remoteBPath", "historyDir")
@@ -32,7 +48,7 @@ def _expand(obj: Dict[str, Any]) -> Dict[str, Any]:
     return obj
 
 
-def load_config(path: str) -> Dict[str, Any]:
+def load_config(path: str) -> "Config":
     """Load pack config JSON; missing required fields raise ConfigError naming them."""
     if not os.path.isfile(path):
         raise ConfigError("配置文件不存在: %s" % path)
@@ -75,4 +91,4 @@ def load_config(path: str) -> Dict[str, Any]:
     cfg.setdefault("concurrency", {})
     cfg["concurrency"].setdefault("upload", 4)
     cfg["concurrency"].setdefault("download", 4)
-    return _expand(cfg)
+    return Config(_expand(cfg))
