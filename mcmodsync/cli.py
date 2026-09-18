@@ -283,6 +283,24 @@ def cmd_publish_client(args) -> int:
         return e.exit_code
 
 
+def cmd_package_client(args) -> int:
+    """[T-50] 组装 C 端分发包（exe + .py 兜底 + config.json + SHA256SUMS）。"""
+    from . import packaging
+
+    out = args.out or packaging.repo_assets()["default_out"]
+    try:
+        res = packaging.assemble(args.config, out, exe=args.exe or None,
+                                 no_exe=args.no_exe, fallback=args.fallback or None,
+                                 skip_verify=args.skip_verify)
+    except packaging.PackagingError as e:
+        print("package-client 失败: %s" % e)
+        return EXIT_GENERIC
+    print("分发包已生成: %s" % res["out"])
+    for rel, size in res["files"]:
+        print("  %-28s %9d 字节" % (rel, size))
+    return EXIT_GENERIC if res["banned"] else EXIT_OK
+
+
 def _common_parent() -> argparse.ArgumentParser:
     """-c/--config 同时支持「子命令 -c ...」写法（计划书用法）。"""
     c = argparse.ArgumentParser(add_help=False)
@@ -323,7 +341,13 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--notes", default="")
     pc.add_argument("--dry-run", action="store_true")
 
-    sub.add_parser("package-client", parents=[C], help="打包客户端（占位，T-50 实现）")
+    pk = sub.add_parser("package-client", parents=[C],
+                        help="打包客户端分发包（exe + .py 兜底 + config.json + SHA256SUMS）")
+    pk.add_argument("--out", default="", help="输出目录（默认 <仓库>/dist/client-package）")
+    pk.add_argument("--no-exe", action="store_true", help="跳过 exe 构建（仅 .py 兜底）")
+    pk.add_argument("--exe", default="", help="复用已构建的 exe 路径")
+    pk.add_argument("--fallback", default="", help=".py 兜底来源（默认 client/mcmodsync.py）")
+    pk.add_argument("--skip-verify", action="store_true", help="跳过产物内模块核验")
     return p
 
 
@@ -347,7 +371,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.command == "fetch-mods":
             return cmd_fetch_mods(args)
         if args.command == "package-client":
-            return _not_implemented("T-50")
+            return cmd_package_client(args)
     except mconfig.ConfigError as e:
         print("配置错误: %s" % e)
         return EXIT_GENERIC
