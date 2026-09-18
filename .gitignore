@@ -16,3 +16,4 @@ client-mods/
 # 凭据文件：计划 [11.2] 未预期 ssh.json（需求方用于存放 SSH 凭证），
 # 依 AC-6「凭证零入库」补充覆盖。
 ssh.json
+/.idea/
