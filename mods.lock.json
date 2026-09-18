@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "packMeta": {
+    "minecraftVersion": "1.21.1",
+    "loader": "neoforge"
+  },
+  "mods": []
+}

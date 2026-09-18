@@ -66,6 +66,7 @@ def main() -> int:
         ("/www 可写性", "if [ -w /www ]; then touch /www/.mcms-wtest && rm -f /www/.mcms-wtest && echo WRITABLE; else echo NOT_WRITABLE; fi"),
         ("/www 属性", "ls -ld /www 2>&1 || echo '(无 /www)'"),
         ("HOME 可写性", "touch \"$HOME/.mcms-wtest\" && rm -f \"$HOME/.mcms-wtest\" && echo WRITABLE || echo NOT_WRITABLE"),
+        ("mods 样例文件名", "ls -1 '%s/mods'/*.jar 2>/dev/null | head -6 | xargs -n1 basename" % root),
         ("mods 体积", "du -sh '%s/mods' 2>/dev/null | cut -f1 || echo '(未知)'" % root),
         ("根目录体积", "du -sh '%s' 2>/dev/null | cut -f1 || echo '(未知)'" % root),
         ("history 目录现状", "ls -ld /www/mcmodsync-history 2>&1 || echo '(不存在)'"),
