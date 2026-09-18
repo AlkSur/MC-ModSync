@@ -34,15 +34,17 @@ def _build_opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(*handlers)
 
 
-def _fetch(url: str, dst: str, timeout: int = 60) -> None:
+def _fetch(url: str, dst: str, timeout: int = 60) -> int:
+    """下载 url -> dst；返回 HTTP 状态码。"""
     opener = _build_opener()
-    req = urllib.request.Request(url, headers={"User-Agent": "MC-ModSync-C/0.7"})
+    req = urllib.request.Request(url, headers={"User-Agent": "MC-ModSync-C/2.0"})
     with opener.open(req, timeout=timeout) as resp, open(dst, "wb") as f:
         while True:
             block = resp.read(1024 * 1024)
             if not block:
                 break
             f.write(block)
+        return int(resp.status)
 
 
 def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
@@ -58,11 +60,15 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
-            _fetch(url, tmp)
+            status = _fetch(url, tmp)
             # 先校验临时文件，通过后才原子落位；失败不污染 dst。
             if not verify_fn(tmp):
                 raise DownloadError(5, "下载内容校验失败: %s" % url)
             os.replace(tmp, dst)
+            if log:
+                log("HTTP %d 已下载 %s (sha256=%s, size=%d)"
+                    % (status, os.path.basename(dst), expected_sha or "-",
+                       int(os.path.getsize(dst))))
             return
         except Exception as e:
             last_err = e
@@ -107,10 +113,12 @@ def download(url: str, dst: str, expected_sha: str, expected_size: int,
 
 def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
                    concurrency: int = 4, retries: int = 3,
-                   log: Optional[Callable[[str], None]] = None) -> int:
+                   log: Optional[Callable[[str], None]] = None,
+                   on_done: Optional[Callable[[Dict], None]] = None) -> int:
     """Download all blobs into staging; returns total downloaded bytes.
 
     tasks: list of {path, sha256, size} entries that need downloading.
+    on_done: 每个 blob 落位后回调（供 C 端渲染进度）。
     """
     if not tasks:
         return 0
@@ -135,6 +143,8 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
             return h.hexdigest() == sha and size == expected["size"]
 
         download_one(url, dst, sha, expected["size"], _verify, retries=retries, log=log)
+        if on_done:
+            on_done(expected)
         return expected
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:

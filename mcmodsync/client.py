@@ -180,7 +180,8 @@ def detect_game_running() -> bool:
 # 网络读取（只读）
 # --------------------------------------------------------------------------
 
-def fetch_json(url: str, cache_bust: bool = False, timeout: int = 30) -> dict:
+def fetch_json(url: str, cache_bust: bool = False, timeout: int = 30,
+               log: Optional[Callable[[str], None]] = None) -> dict:
     """GET JSON；指针请求追加 ?t=<unix秒>（[T-40] 步骤4）。"""
     if cache_bust:
         sep = "&" if "?" in url else "?"
@@ -188,7 +189,10 @@ def fetch_json(url: str, cache_bust: bool = False, timeout: int = 30) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
                                               "Cache-Control": "no-cache"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        data = json.loads(resp.read().decode("utf-8"))
+        if log:
+            log("HTTP %d %s" % (resp.status, url))
+        return data
 
 
 def _resolve_url(base_url: str, rel: str) -> str:
@@ -390,7 +394,8 @@ def _prune_backups(target: str, keep: int, log: Callable[[str], None]) -> None:
 
 def sync(target: str, strict: bool = False, no_downgrade: bool = False,
          keep_backups: int = DEFAULT_KEEP_BACKUPS, log: Callable[[str], None] = print,
-         game_running_check: Optional[Callable[[], bool]] = None) -> int:
+         game_running_check: Optional[Callable[[], bool]] = None,
+         progress: Optional[Callable[[int, int, int, int], None]] = None) -> int:
     target = os.path.abspath(target)
     os.makedirs(updater_dir(target), exist_ok=True)
     lock = locking.FileLock(lock_path(target))
@@ -401,7 +406,7 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
         return EXIT_LOCK
     try:
         return _sync_locked(target, strict, no_downgrade, keep_backups, log,
-                            game_running_check)
+                            game_running_check, progress)
     except ClientError as e:
         log("错误(%d): %s" % (e.exit_code, e))
         return int(e.exit_code)
@@ -423,7 +428,8 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
 
 def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: int,
                  log: Callable[[str], None],
-                 game_running_check: Optional[Callable[[], bool]]) -> int:
+                 game_running_check: Optional[Callable[[], bool]],
+                 progress: Optional[Callable[[int, int, int, int], None]] = None) -> int:
     # 步骤2 配置
     cfg = load_config(target)                            # 缺字段 -> 1
     # 步骤3 游戏运行检测
@@ -435,7 +441,7 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     # 步骤4 拉指针 + 版本清单（验签失败 -> 2）
     pointer_url = str(cfg["manifestUrl"])
     try:
-        pointer = fetch_json(pointer_url, cache_bust=True)
+        pointer = fetch_json(pointer_url, cache_bust=True, log=log)
     except urllib.error.HTTPError as e:
         log("指针拉取失败: HTTP %s (%s)" % (e.code, pointer_url))
         return EXIT_NETWORK
@@ -447,7 +453,7 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
         log("指针缺少 manifestUrl")
         return EXIT_GENERIC
     try:
-        man = fetch_json(man_url)
+        man = fetch_json(man_url, log=log)
     except urllib.error.HTTPError as e:
         log("版本清单拉取失败: HTTP %s (%s)" % (e.code, man_url))
         return EXIT_NETWORK
@@ -494,6 +500,15 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     log("云端版本: %s（本地 %s）" % (new_ver or "-", old_ver or "-"))
     log("变更预览: 新增/更新 %d（其中改名复用 %d，需下载 %d），删除 %d"
         % (len(plan["need"]), len(copies), len(downloads), len(to_delete)))
+    for e in plan["need"]:
+        kind = "改名复用" if e["path"] in copies else ("更新" if e["path"] in disk else "新增")
+        log("决策: %s %s (sha256=%s, size=%d)" % (kind, e["path"], e["sha256"], int(e["size"])))
+    for e in to_delete:
+        log("决策: 删除 %s (sha256=%s, reason=%s)"
+            % (e["path"], e["sha256"], e["reason"]))
+    skipped = len(plan["desired"]) - len(plan["need"])
+    if skipped:
+        log("决策: 跳过 %d 个（磁盘哈希已与清单一致）" % skipped)
 
     # 步骤10 路径安全 + 磁盘预检（先于任何写操作）
     check_paths(target, sorted(set(list(plan["desired"].keys())
@@ -506,11 +521,31 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     # 步骤9 下载
     base = blob_base_of(pointer_url)
     staging = staging_dir(target)
+    total_files = len(plan["need"])
+    total_bytes = sum(int(e["size"]) for e in plan["need"])
+    tick = {"files": 0, "bytes": 0}
+
+    def _emit() -> None:
+        if progress:
+            progress(tick["files"], total_files, tick["bytes"], total_bytes)
+
+    for e in plan["need"]:                       # 改名复用无需网络，直接计入完成
+        if e["path"] in copies:
+            tick["files"] += 1
+            tick["bytes"] += int(e["size"])
+            _emit()
     if downloads:
         log("开始下载 %d 个文件（并发 4，单个失败重试 3 次）..." % len(downloads))
+
+        def _on_done(entry: dict) -> None:
+            tick["files"] += 1
+            tick["bytes"] += int(entry["size"])
+            _emit()
+
         http_download.download_blobs([{"path": e["path"], "sha256": e["sha256"],
                                        "size": int(e["size"])} for e in downloads],
-                                     base, staging, concurrency=4, retries=3, log=log)
+                                     base, staging, concurrency=4, retries=3, log=log,
+                                     on_done=_on_done)
     got_bytes = download_bytes
 
     # 步骤11 备份
@@ -609,12 +644,12 @@ def verify(target: str, strict: bool = False, log: Callable[[str], None] = print
         log("错误(%d): %s" % (e.exit_code, e))
         return int(e.exit_code)
     try:
-        pointer = fetch_json(str(cfg["manifestUrl"]), cache_bust=True)
+        pointer = fetch_json(str(cfg["manifestUrl"]), cache_bust=True, log=log)
         if not canonicaljson.verify(pointer, str(cfg["publicKey"])):
             log("指针验签失败")
             return EXIT_SIGNATURE
         man_url = _resolve_url(str(cfg["manifestUrl"]), str(pointer.get("manifestUrl") or ""))
-        man = fetch_json(man_url)
+        man = fetch_json(man_url, log=log)
         if not canonicaljson.verify(man, str(cfg["publicKey"])):
             log("版本清单验签失败")
             return EXIT_SIGNATURE
@@ -825,7 +860,7 @@ def doctor(target: str, log: Callable[[str], None] = print) -> int:
 
     if cfg is not None:
         try:
-            pointer = fetch_json(str(cfg["manifestUrl"]), cache_bust=True)
+            pointer = fetch_json(str(cfg["manifestUrl"]), cache_bust=True, log=log)
             add("指针可达", True, str(cfg["manifestUrl"]))
         except Exception as e:  # noqa: BLE001
             pointer = None
@@ -837,7 +872,7 @@ def doctor(target: str, log: Callable[[str], None] = print) -> int:
                 try:
                     man_url = _resolve_url(str(cfg["manifestUrl"]),
                                            str(pointer.get("manifestUrl") or ""))
-                    man = fetch_json(man_url)
+                    man = fetch_json(man_url, log=log)
                     add("版本清单验签", canonicaljson.verify(man, str(cfg["publicKey"])),
                         "版本 %s" % man.get("version"))
                 except Exception as e:  # noqa: BLE001

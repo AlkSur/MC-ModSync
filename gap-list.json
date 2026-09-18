@@ -163,8 +163,8 @@
     },
     {
       "模块": "mcmodsync/client_main.py",
-      "状态": "缺失",
-      "缺口描述": "C 打包入口（仅 stdlib）未实现。",
+      "状态": "完成",
+      "缺口描述": "T-41 已实现 C 打包入口（仅标准库）：sync/verify/rollback/doctor 分发 + --target/--no-pause/--strict/--no-downgrade/--keep-backups；中文控制台（阶段/文件计数/总大小/纯文本进度条，无 emoji，UTF-8 防乱码）；日志 _updater/logs/updater-<日期>.log 含 HTTP 状态码与逐文件 sha256/决策；失败打印日志路径。新增 tools/check_c_deps.py（顶层静态 + 惰性 WARN + 屏蔽第三方子进程功能性验证）并接入 CI。tests/test_client_main.py 7 例。",
       "归属任务": "T-41"
     },
     {
