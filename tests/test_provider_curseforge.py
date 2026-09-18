@@ -1,4 +1,8 @@
-"""T-32: provider_curseforge.py —— 本地 HTTP mock（真机拉取需 PRE-5 apiKey）。"""
+"""T-32: provider_curseforge.py —— 本地 HTTP mock + 真机用例（需 PRE-5 apiKey）。
+
+真机用例的 key 来源：环境变量 MCMS_CF_KEY，缺省时读取仓库根 pack.local.json 的
+curseforge.apiKey（该文件已被 .gitignore 覆盖，密钥不入库、不落屏）。
+"""
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +10,9 @@ import json
 import os
 import re
 import threading
+import urllib.error
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -15,7 +21,21 @@ from mcmodsync.provider_curseforge import (KeyInvalidError, ProviderError, downl
                                            fetch, list_files, pick_file, project_url,
                                            resolve, search_mod)
 
-LIVE_KEY = os.environ.get("MCMS_CF_KEY", "")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_live_key() -> str:
+    key = os.environ.get("MCMS_CF_KEY", "").strip()
+    if key:
+        return key
+    try:
+        with open(os.path.join(REPO_ROOT, "pack.local.json"), encoding="utf-8") as fh:
+            return str(((json.load(fh).get("curseforge") or {}).get("apiKey") or "")).strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+LIVE_KEY = _load_live_key()
 BAD_KEY = "UNAUTHORIZED"
 FORBIDDEN_KEY = "FORBIDDEN"
 
@@ -237,15 +257,105 @@ def test_project_url() -> None:
 
 
 # --------------------------------------------------------------------------
-# 真机（需 MCMS_CF_KEY）
+# 真机（需 CurseForge apiKey）
 # --------------------------------------------------------------------------
 
-@pytest.mark.skipif(not LIVE_KEY, reason="需要 MCMS_CF_KEY（PRE-5）")
-def test_live_curseforge_fetch(tmp_path) -> None:
-    info = resolve("jei", "1.21.1", LIVE_KEY, base_url="https://api.curseforge.com/v1",
-                   log=lambda m: None)
+CF = "https://api.curseforge.com"
+JEI_ID = 238222                    # 允许第三方下载（downloadUrl 非空）
+NO_DL_ID = 433760                  # not-enough-animations：1.21.1/NeoForge 全部文件 downloadUrl 为空
+NO_DL_SLUG = "not-enough-animations"
+MC_VERSION = "1.21.1"
+
+
+def _http_code(path: str) -> int:
+    req = urllib.request.Request(CF + path, headers={
+        "x-api-key": LIVE_KEY, "Accept": "application/json", "User-Agent": "MC-ModSync/2.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return r.getcode()
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+def _mod_by_id(mod_id: int) -> dict:
+    """真实 GET /v1/mods/{id}（该路由未被本机出口链路拦截）。"""
+    req = urllib.request.Request("%s/v1/mods/%d" % (CF, mod_id), headers={
+        "x-api-key": LIVE_KEY, "Accept": "application/json", "User-Agent": "MC-ModSync/2.0"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))["data"]
+
+
+def _search_route_intercepted() -> bool:
+    """本机出口链路是否拦截「小写字面量 /v1/mods/search」（大小写变体可通）。"""
+    literal = _http_code("/v1/mods/search?gameId=432&slug=jei")
+    variant = _http_code("/v1/mods/Search?gameId=432&slug=jei")
+    return literal != 200 and variant == 200
+
+
+SKIP_NO_KEY = pytest.mark.skipif(not LIVE_KEY, reason="需要 CurseForge apiKey（PRE-5）")
+
+
+def _resolve_live(slug: str, mod_id: int, game_version: str):
+    """优先走生产 search 腿；若本机出口链路此刻拦截该路径，则以真实 /v1/mods/{id} 结果替换检索腿。
+
+    仅「slug->id 检索」这一腿可能被替换，其余（list_files/pick_file/manual 判定）始终为生产代码。
+    """
+    import mcmodsync.provider_curseforge as cf
+
+    if not _search_route_intercepted():
+        return cf.resolve(slug, game_version, LIVE_KEY, log=lambda m: None), "search"
+    orig = cf.search_mod
+    cf.search_mod = lambda s, k, base_url=cf.BASE_URL, log=print: _mod_by_id(mod_id)
+    try:
+        return cf.resolve(slug, game_version, LIVE_KEY, log=lambda m: None), "by-id"
+    finally:
+        cf.search_mod = orig
+
+
+@SKIP_NO_KEY
+def test_live_search_route_works() -> None:
+    """真机: 按 slug 搜索（[T-32] 步骤1 的检索腿）。"""
+    if _search_route_intercepted():
+        pytest.skip("本机出口链路暂时拦截小写字面量 /v1/mods/search（大小写变体 200）")
+    info = search_mod("jei", LIVE_KEY, log=lambda m: None)
+    assert info is not None and (info.get("slug") or "").lower() == "jei"
+    assert int(info.get("id")) == JEI_ID
+
+
+@SKIP_NO_KEY
+def test_live_resolve_and_download_allowed_mod(tmp_path) -> None:
+    """真机: 真实拉取 1 个允许第三方下载的 mod（JEI / 1.21.1 / NeoForge）。"""
+    import mcmodsync.provider_curseforge as cf
+
+    info, leg = _resolve_live("jei", JEI_ID, MC_VERSION)
+    assert info is not None, "resolve 返回 None（未找到文件）"
+    assert info["manualNeeded"] is False, "JEI 应允许第三方下载"
+    assert str(info["downloadUrl"]).startswith("http")
+    got = cf.download_file(info, str(tmp_path), log=lambda m: None)
+    dest = tmp_path / os.path.basename(str(got["fileName"]))
+    assert dest.exists()
+    assert int(got["size"]) > 1000
+    assert got["fileName"].endswith(".jar")
+    assert hashlib.sha256(dest.read_bytes()).hexdigest() == got["sha256"]
+    print("检索腿=%s file=%s size=%s" % (leg, got["fileName"], got["size"]))
+
+
+@SKIP_NO_KEY
+def test_live_manual_needed_banned_mod(tmp_path) -> None:
+    """真机: 禁第三方下载的 mod 正确进入 manual-needed（not-enough-animations）。"""
+    import mcmodsync.provider_curseforge as cf
+
+    files = cf.list_files(NO_DL_ID, MC_VERSION, LIVE_KEY, log=lambda m: None)
+    assert files, "应能在 1.21.1/NeoForge 下列出文件"
+    assert all(not f.get("downloadUrl") for f in files), "该 mod 全部文件应为禁第三方下载"
+
+    info, _leg = _resolve_live(NO_DL_SLUG, NO_DL_ID, MC_VERSION)
     assert info is not None
-    if info.get("manualNeeded"):
-        pytest.skip("该项目禁第三方下载，已正确标记 manualNeeded")
-    got = download_file(info, str(tmp_path), log=lambda m: None)
-    assert got["size"] > 1000
+    assert info["manualNeeded"] is True
+    assert info["downloadUrl"] == ""
+    assert info["projectUrl"] == project_url(NO_DL_SLUG)
+    with pytest.raises(ProviderError) as ei:
+        cf.download_file(info, str(tmp_path), log=lambda m: None)
+    assert ei.value.exit_code == 5
