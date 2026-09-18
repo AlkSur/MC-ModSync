@@ -24,9 +24,10 @@
     },
     {
       "模块": "mcmodsync/config.py",
-      "状态": "部分",
-      "缺口描述": "load_config(path) 已实现 JSON 读取、必填字段校验（逐字段报错）与 ~ 展开；但返回 dict，契约写作 -> Config，未定义 Config 类型。",
-      "归属任务": "T-20"
+      "状态": "完成",
+      "缺口描述": "T-20 已补齐 config.Config(dict) 与 load_config(path)->Config；必填字段校验；~ 展开。",
+      "归属任务": "T-20",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mcmodsync/manifest.py",
@@ -96,9 +97,10 @@
     },
     {
       "模块": "mcmodsync/ssh.py",
-      "状态": "部分",
-      "缺口描述": "connect/run/put/stat/mkdirs/remove/rename/close 齐，未知主机默认拒绝（RejectPolicy）+ accept_new_host 放行；契约要求的 SFTP get 未实现。",
-      "归属任务": "T-20"
+      "状态": "完成",
+      "缺口描述": "T-20 已补齐 SFTP get；connect 异常包装修正（含 socket 层 NoValidConnectionsError）。",
+      "归属任务": "T-20",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mcmodsync/storage/__init__.py",
@@ -114,9 +116,10 @@
     },
     {
       "模块": "mcmodsync/http_download.py",
-      "状态": "部分",
-      "缺口描述": "download_one/download_blobs 已实现（线程池、3 次指数退避、整文件重下、无断点续传、PROXY 支持、blob 布局）；契约名 download(url,dst,expected_sha,expected_size) 未直接提供，需新增包装或对齐签名。",
-      "归属任务": "T-20"
+      "状态": "完成",
+      "缺口描述": "T-20 已补齐契约入口 download()，落位改为「先校验临时文件再原子替换」；T-41/T-50 追加 HTTP 状态码日志与 on_done 回调。",
+      "归属任务": "T-20",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mcmodsync/applier.py",
@@ -127,21 +130,24 @@
     },
     {
       "模块": "mcmodsync/pusher.py",
-      "状态": "缺失",
-      "缺口描述": "push-server / rollback-server 编排未实现。",
-      "归属任务": "T-21"
+      "状态": "完成",
+      "缺口描述": "T-21 已实现 B 引导 + push-server 11 步 + rollback-server；TL-3 共 19 例（含真实主机隔离目录演练）。",
+      "归属任务": "T-21",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mcmodsync/publisher.py",
-      "状态": "缺失",
-      "缺口描述": "publish-client 编排未实现。",
-      "归属任务": "T-22"
+      "状态": "完成",
+      "缺口描述": "T-22 已实现 publish-client 9 步；TL-4 共 11 例（含七彩云真机 3 版本发布、CDN 校验、云端恢复）。",
+      "归属任务": "T-22",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mcmodsync/fetcher.py",
-      "状态": "缺失",
-      "缺口描述": "fetch-mods 编排未实现。",
-      "归属任务": "T-33"
+      "状态": "完成",
+      "缺口描述": "T-33/34/35 已实现编排、side 三态落盘、幂等、锁回写、manual 闭环与 CLI 联动；T-52 修复 manual 条目 fileName 未回写与 slug 兜底匹配、resolvedVersion 不再含 .jar。",
+      "归属任务": "T-33",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mcmodsync/provider_modrinth.py",
@@ -208,9 +214,10 @@
     },
     {
       "模块": "packaging/mcmodsync.spec",
-      "状态": "缺失",
-      "缺口描述": "T-50 已落档：PyInstaller 单文件（packaging/entry_client.py 走绝对导入），产物名按平台 mcmodsync.exe / mcmodsync-linux；excludes 显式排除 boto3/botocore/paramiko/cryptography 及传递依赖与 tkinter/pytest 等；upx=False。配套 tools/build_client.py（纯 Python 兜底 + 防漂移）与 tools/package_client.py（组装 dist/client-package + SHA256SUMS + exe 内模块核验）；双击链路端到端实测通过。",
-      "归属任务": "T-50"
+      "状态": "完成",
+      "缺口描述": "T-50 已落档（PyInstaller 单文件 + excludes + upx=False），配套 tools/build_client.py 与 tools/package_client.py（含产物核验）。",
+      "归属任务": "T-50",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "tests/fixtures/",
@@ -221,10 +228,11 @@
     },
     {
       "模块": "tests/test_*.py（16 个）",
-      "状态": "部分",
-      "缺口描述": "阶段1 已完成: test_ed25519_min / test_canonicaljson_sign / test_hashing / test_planner / test_paths / test_locking / test_b_apply / test_b_rollback / test_b_build（另附 test_signing / test_stdlib_purity / test_smoke）；其余随各阶段补。",
+      "状态": "完成",
+      "缺口描述": "T-52 核对：测试文件已增至 24 个（含 bharness.py/charness.py 夹具），覆盖 TL-1~TL-5 与各任务；全量 307 passed / 7 skipped。",
       "归属任务": "各阶段对应任务",
-      "阶段1更新": "2026-09-18 T-10/T-11/T-12 后"
+      "阶段1更新": "2026-09-18 T-10/T-11/T-12 后",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "docs/七彩云配置.md",
@@ -258,45 +266,52 @@
     },
     {
       "模块": ".github/workflows/ci.yml",
-      "状态": "缺失",
-      "缺口描述": "目录 .github/workflows/ 存在但为空，CI 空套件未配置。",
-      "归属任务": "T-03"
+      "状态": "完成",
+      "缺口描述": "T-03 建立（B 防漂移、B 3.8 语法、pytest）；T-41/T-50 追加 C 端依赖检查、C 单文件兜底防漂移与 windows-c 作业。",
+      "归属任务": "T-03",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": ".gitignore",
-      "状态": "缺失",
-      "缺口描述": "未创建（内容见计划 [11.2]）；仓库尚未初始化 git，凭证零入库(AC-6)未建立。",
-      "归属任务": "T-03"
+      "状态": "完成",
+      "缺口描述": "T-03 建立：覆盖 pack.local.json/*.local.json/ssh.json/private.key/*.pem/client-publish-state.json/dist/build 等（AC-6 凭证零入库）。",
+      "归属任务": "T-03",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "(仓库级) git 初始化",
-      "状态": "缺失",
-      "缺口描述": "mc-modsync/ 当前不是 git 仓库（无 .git），T-03 需初始化并提交基线 commit。",
-      "归属任务": "T-03"
+      "状态": "完成",
+      "缺口描述": "T-03 已 git init（main）并建立基线提交；当前工作区干净。",
+      "归属任务": "T-03",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "pack.example.json",
-      "状态": "缺失",
-      "缺口描述": "未创建（模板见计划 [11.1]）。",
-      "归属任务": "T-02/T-03"
+      "状态": "完成",
+      "缺口描述": "T-02/T-03 已按 [11] 原文落档为示例配置模板（无真实凭证）。",
+      "归属任务": "T-02/T-03",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "mods.lock.json",
-      "状态": "缺失",
-      "缺口描述": "mod 获取清单未建立。",
-      "归属任务": "T-30"
+      "状态": "完成",
+      "缺口描述": "T-30 已建骨架并冻结字段（schemaVersion=1 + packMeta + mods[]）；packMeta 按服务端实测填 1.21.1/neoforge。",
+      "归属任务": "T-30",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "pyproject.toml",
-      "状态": "缺失",
-      "缺口描述": "未配置。",
-      "归属任务": "T-03"
+      "状态": "完成",
+      "缺口描述": "T-03 建立；T-50 追加 dev extras（pyyaml、pyinstaller>=6.0,<7）。",
+      "归属任务": "T-03",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "README.md",
-      "状态": "缺失",
-      "缺口描述": "未创建。",
-      "归属任务": "T-03"
+      "状态": "完成",
+      "缺口描述": "T-03 建立：仓库说明与快速上手；T-51 起文档五件套位于 docs/。",
+      "归属任务": "T-03",
+      "验证": "T-52 验收同步（对应任务已交付并通过测试）"
     },
     {
       "模块": "(仓库级) 误建目录 mc-modsync/mc-modsync/",
