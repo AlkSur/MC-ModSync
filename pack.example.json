@@ -1,0 +1,38 @@
+{
+  "packId": "my-server-pack",
+  "packName": "我的服务器整合包",
+  "server": {
+    "host": "YOUR_SERVER_HOST",
+    "port": 22,
+    "user": "YOUR_SSH_USER",
+    "authMethod": "key",
+    "keyFile": "~/.ssh/id_ed25519",
+    "password": "",
+    "knownHosts": "~/.ssh/known_hosts",
+    "serverDir": "/path/to/server",
+    "modsDir": "mods",
+    "sourceModsDir": "./server-mods",
+    "remoteBPath": "/www/mcmodsync-b.py",
+    "historyDir": "/www/mcmodsync-history",
+    "historyKeep": 3
+  },
+  "client": {
+    "sourceModsDir": "./client-mods",
+    "manifestUrl": "https://YOUR_DOMAIN/packs/YOUR_PREFIX/manifest.json",
+    "publicKey": "BASE64_PUBLIC_KEY",
+    "clientStateFile": "./client-publish-state.json"
+  },
+  "storage": {
+    "endpointUrl": "https://s3.YOUR_REGION.example.com",
+    "region": "YOUR_REGION",
+    "pathStyle": true,
+    "bucket": "YOUR_BUCKET",
+    "prefix": "packs/YOUR_PREFIX/",
+    "accessKey": "YOUR_AK",
+    "secretKey": "YOUR_SK",
+    "publicBaseUrl": "https://YOUR_DOMAIN"
+  },
+  "curseforge": { "apiKey": "YOUR_CF_API_KEY" },
+  "signing": { "privateKeyFile": "~/.mcmodsync/private.key" },
+  "concurrency": { "upload": 4, "download": 4 }
+}

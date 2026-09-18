@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "task": "T-01",
+  "generatedAt": "2026-09-18T18:15:00+08:00",
+  "target": "F:/Storage/ai/plugins-Dev/mc-modsync/",
+  "references": {
+    "structure": "[10] 仓库目录结构（原文误引为 [14]）",
+    "contract": "[6] A 端模块契约（原文误引为 [8]）"
+  },
+  "note": "后续阶段1~4 每个任务开工前先查本清单；状态=完成 的模块只做补测不重写；标记=需重构 的项在对应任务中处理。",
+  "summary": {
+    "完成": 11,
+    "部分": 11,
+    "缺失": 24,
+    "需重构": 3,
+    "合计": 46
+  },
+  "items": [
+    { "模块": "mcmodsync/__init__.py", "状态": "完成", "缺口描述": "包标记文件（仅注释）。", "归属任务": "-" },
+
+    { "模块": "mcmodsync/config.py", "状态": "部分", "缺口描述": "load_config(path) 已实现 JSON 读取、必填字段校验（逐字段报错）与 ~ 展开；但返回 dict，契约写作 -> Config，未定义 Config 类型。", "归属任务": "T-20" },
+    { "模块": "mcmodsync/manifest.py", "状态": "部分", "缺口描述": "原子写(atomic_write/atomic_write_text/atomic_copy)、read_json/write_json、check_schema、make_state/make_desired 齐；[3] 节 13 类 JSON 数据模型未全覆盖（changes.json/mods.lock.json/manifest.json 等模型缺）。", "归属任务": "T-10" },
+    { "模块": "mcmodsync/hashing.py", "状态": "部分", "缺口描述": "hash_bytes/scan_tree(root,subdir,exts,recursive)/entry_map/mtime_of 齐且流式；hash_file 返回 {\"sha256\",\"size\"} dict，契约写作 (sha,size) 元组，调用约定需统一。", "归属任务": "T-10" },
+    { "模块": "mcmodsync/canonicaljson.py", "状态": "部分", "缺口描述": "实现存在但位于误建路径 mc-modsync/mc-modsync/mcmodsync/canonicaljson.py，需迁回 mcmodsync/；sign(obj,privkey_pem)/verify(obj,pubkey_b64) 的参数形态与契约 sign(obj,privkey)/verify(obj,pubkey) 略有出入（含 strip_signature 辅助）。", "归属任务": "T-10" },
+    { "模块": "mcmodsync/signing.py", "状态": "部分", "缺口描述": "已实现 keygen(private_key_path)->(pub_b64,path) 与 load_private_key(path)->bytes；契约要求的 sign/verify 未在 signing.py 提供（当前落在 canonicaljson.py）。", "归属任务": "T-11" },
+    { "模块": "mcmodsync/ed25519_min.py", "状态": "完成", "缺口描述": "纯 stdlib RFC 8032 验签 verify(pub,sig,msg)->bool，含 s<L 与点解压校验，不抛异常。", "归属任务": "T-11" },
+    { "模块": "mcmodsync/planner.py", "状态": "部分", "缺口描述": "plan(base,desired)->{added,replaced,deleted,unchanged}，字段含 newSha256/oldSha256/size；需与 [2.9] ChangeSet 契约逐字段比对确认（含同内容改名归入 added+deleted 的语义）。", "归属任务": "T-10" },
+    { "模块": "mcmodsync/paths.py", "状态": "完成", "缺口描述": "normalize_rel/safe_join/is_within 齐；覆盖 ..、绝对路径、Windows 盘符拒绝，UnsafePath.exit_code=13。", "归属任务": "T-10" },
+    { "模块": "mcmodsync/locking.py", "状态": "完成", "缺口描述": "FileLock 上下文管理器；POSIX fcntl.flock(LOCK_EX|LOCK_NB) / Windows msvcrt.locking 锁 1 字节；失败抛 LockHeld(exit_code=10)。", "归属任务": "T-10" },
+    { "模块": "mcmodsync/logutil.py", "状态": "完成", "缺口描述": "setup_logger 控制台+文件句柄、UTF-8；mask/mask_text 对 accessKey/secretKey/password/token/privateKey 打码。", "归属任务": "T-20" },
+    { "模块": "mcmodsync/platform.py", "状态": "完成", "缺口描述": "same_device(a,b)（st_dev）与 is_game_running()（Windows toolhelp/POSIX /proc），另有 disk_usage 包装。契约中 same_device 属本模块。", "归属任务": "T-20/T-40（被 T-12 引用）" },
+    { "模块": "mcmodsync/ssh.py", "状态": "部分", "缺口描述": "connect/run/put/stat/mkdirs/remove/rename/close 齐，未知主机默认拒绝（RejectPolicy）+ accept_new_host 放行；契约要求的 SFTP get 未实现。", "归属任务": "T-20" },
+    { "模块": "mcmodsync/storage/__init__.py", "状态": "完成", "缺口描述": "包标记文件。", "归属任务": "T-20" },
+    { "模块": "mcmodsync/storage/s3.py", "状态": "完成", "缺口描述": "S3Store.head/put_file/put_bytes/get_text/get_object 齐（另含 delete/get_cache_control）；按 T-00 结论需配 endpointUrl=https://s3.7caiyun.com、region=us-west、pathStyle=true。", "归属任务": "T-20" },
+    { "模块": "mcmodsync/http_download.py", "状态": "部分", "缺口描述": "download_one/download_blobs 已实现（线程池、3 次指数退避、整文件重下、无断点续传、PROXY 支持、blob 布局）；契约名 download(url,dst,expected_sha,expected_size) 未直接提供，需新增包装或对齐签名。", "归属任务": "T-20" },
+    { "模块": "mcmodsync/applier.py", "状态": "部分", "缺口描述": "backup_changes/apply_change_set/verify_against 齐，含 fault 注入钩子；【硬冲突】apply_change_set 对 added/replaced 用 manifest.atomic_copy（复制），而计划 apply 步骤9 要求 os.replace(staging/blobs/.../<sha>, <server-dir>/<path>) 同分区原子移入（不产生复制）。", "标记": "需重构", "归属任务": "T-12" },
+
+    { "模块": "mcmodsync/pusher.py", "状态": "缺失", "缺口描述": "push-server / rollback-server 编排未实现。", "归属任务": "T-21" },
+    { "模块": "mcmodsync/publisher.py", "状态": "缺失", "缺口描述": "publish-client 编排未实现。", "归属任务": "T-22" },
+    { "模块": "mcmodsync/fetcher.py", "状态": "缺失", "缺口描述": "fetch-mods 编排未实现。", "归属任务": "T-33" },
+    { "模块": "mcmodsync/provider_modrinth.py", "状态": "缺失", "缺口描述": "Modrinth API（纯 urllib）未实现。", "归属任务": "T-31" },
+    { "模块": "mcmodsync/provider_curseforge.py", "状态": "缺失", "缺口描述": "CurseForge API（纯 urllib + x-api-key）未实现。", "归属任务": "T-32" },
+    { "模块": "mcmodsync/client.py", "状态": "缺失", "缺口描述": "C 端 sync/verify/rollback/doctor 逻辑未实现。", "归属任务": "T-40" },
+    { "模块": "mcmodsync/client_main.py", "状态": "缺失", "缺口描述": "C 打包入口（仅 stdlib）未实现。", "归属任务": "T-41" },
+
+    { "模块": "server/b_main.py", "状态": "部分", "缺口描述": "manifest/apply/rollback 三子命令主体已实现且较完整（退出码表、锁、staging 校验、no-op、重跑路径、备份、漂移保护、history 清理）；【硬冲突】步骤2 调用 paths.same_device()，但契约中 same_device 属 platform.py，paths 模块无此函数（包模式下运行必 AttributeError；单文件 stitch 亦按 paths 命名空间调用）。", "标记": "需重构", "归属任务": "T-12" },
+    { "模块": "server/mcmodsync-b.py", "状态": "缺失", "缺口描述": "单文件构建产物未生成（依赖 tools/build_server.py）。", "归属任务": "T-12" },
+    { "模块": "tools/build_server.py", "状态": "缺失", "缺口描述": "白名单模块拼接生成单文件 B 的构建脚本未实现（含 GENERATED 头、CI 防漂移 diff）。", "归属任务": "T-12" },
+    { "模块": "tools/t00_verify_7caiyun.py", "状态": "完成", "缺口描述": "T-00 七彩云 S3 兼容性实测工具（本计划 T-00 产出，非 [10] 结构内条目）。", "归属任务": "T-00" },
+
+    { "模块": "entries/更新mod.bat", "状态": "缺失", "缺口描述": "Windows 入口脚本未落盘（原文见计划 [12.1]）。", "归属任务": "T-42" },
+    { "模块": "entries/更新mod.sh", "状态": "缺失", "缺口描述": "Linux 入口脚本未落盘（原文见计划 [12.2]）。", "归属任务": "T-42" },
+
+    { "模块": "packaging/mcmodsync.spec", "状态": "缺失", "缺口描述": "PyInstaller spec 未实现。", "归属任务": "T-50" },
+
+    { "模块": "tests/fixtures/", "状态": "完成", "缺口描述": "目录已存在（当前为空）。", "归属任务": "阶段1~4" },
+    { "模块": "tests/test_*.py（16 个）", "状态": "缺失", "缺口描述": "test_hashing / test_canonicaljson_sign / test_ed25519_min / test_planner / test_paths / test_locking / test_b_apply / test_b_rollback / test_b_build / test_pusher / test_publisher_minio / test_fetcher / test_provider_modrinth / test_provider_curseforge / test_client_sync / test_client_rollback 全部缺失。", "归属任务": "各阶段对应任务" },
+
+    { "模块": "docs/七彩云配置.md", "状态": "完成", "缺口描述": "T-00 产出：实测结论、MinIO 差异、偏差与降级说明。", "归属任务": "T-00" },
+    { "模块": "docs/管理员部署指南.md", "状态": "缺失", "缺口描述": "未创建（须含 OP 发布 SOP [13]）。", "归属任务": "T-51" },
+    { "模块": "docs/玩家使用说明.md", "状态": "缺失", "缺口描述": "未创建。", "归属任务": "T-51" },
+    { "模块": "docs/故障排查与应急换钥.md", "状态": "缺失", "缺口描述": "未创建。", "归属任务": "T-51" },
+    { "模块": "docs/构建与测试.md", "状态": "缺失", "缺口描述": "未创建。", "归属任务": "T-51" },
+
+    { "模块": ".github/workflows/ci.yml", "状态": "缺失", "缺口描述": "目录 .github/workflows/ 存在但为空，CI 空套件未配置。", "归属任务": "T-03" },
+    { "模块": ".gitignore", "状态": "缺失", "缺口描述": "未创建（内容见计划 [11.2]）；仓库尚未初始化 git，凭证零入库(AC-6)未建立。", "归属任务": "T-03" },
+    { "模块": "(仓库级) git 初始化", "状态": "缺失", "缺口描述": "mc-modsync/ 当前不是 git 仓库（无 .git），T-03 需初始化并提交基线 commit。", "归属任务": "T-03" },
+    { "模块": "pack.example.json", "状态": "缺失", "缺口描述": "未创建（模板见计划 [11.1]）。", "归属任务": "T-02/T-03" },
+    { "模块": "mods.lock.json", "状态": "缺失", "缺口描述": "mod 获取清单未建立。", "归属任务": "T-30" },
+    { "模块": "pyproject.toml", "状态": "缺失", "缺口描述": "未配置。", "归属任务": "T-03" },
+    { "模块": "README.md", "状态": "缺失", "缺口描述": "未创建。", "归属任务": "T-03" },
+
+    { "模块": "(仓库级) 误建目录 mc-modsync/mc-modsync/", "状态": "部分", "缺口描述": "存在冗余嵌套目录 mc-modsync/mc-modsync/mcmodsync/canonicaljson.py；应清理并把该文件迁至 mcmodsync/canonicaljson.py。", "标记": "需重构", "归属任务": "T-03" }
+  ]
+}

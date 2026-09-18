@@ -1,0 +1,1 @@
+# MC-ModSync shared package.
