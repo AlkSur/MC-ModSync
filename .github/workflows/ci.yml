@@ -33,5 +33,40 @@ jobs:
       - name: C 端依赖检查（产物不得 import boto3/paramiko/cryptography）
         run: python tools/check_c_deps.py
 
+      - name: C 端单文件兜底防漂移（client/mcmodsync.py）
+        run: python tools/build_client.py --check
+
       - name: Test
         run: python -m pytest
+
+  windows-c:
+    name: Windows · C 端打包与双击链路
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: 生成 C 端单文件兜底
+        run: python tools/build_client.py
+
+      - name: 组装分发包（构建 exe + 渲染 config + SHA256SUMS）
+        run: python tools/package_client.py
+
+      - name: C 端测试（含真实 bat 双击链路、路径含空格/中文）
+        run: python -m pytest tests/test_client.py tests/test_client_main.py tests/test_entries.py tests/test_packaged_client.py -q
+
+      - name: 上传分发包工件
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-package
+          path: dist/client-package/
+          if-no-files-found: error

@@ -209,7 +209,7 @@
     {
       "模块": "packaging/mcmodsync.spec",
       "状态": "缺失",
-      "缺口描述": "PyInstaller spec 未实现。",
+      "缺口描述": "T-50 已落档：PyInstaller 单文件（packaging/entry_client.py 走绝对导入），产物名按平台 mcmodsync.exe / mcmodsync-linux；excludes 显式排除 boto3/botocore/paramiko/cryptography 及传递依赖与 tkinter/pytest 等；upx=False。配套 tools/build_client.py（纯 Python 兜底 + 防漂移）与 tools/package_client.py（组装 dist/client-package + SHA256SUMS + exe 内模块核验）；双击链路端到端实测通过。",
       "归属任务": "T-50"
     },
     {

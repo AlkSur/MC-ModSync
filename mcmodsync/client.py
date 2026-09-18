@@ -842,13 +842,17 @@ def doctor(target: str, log: Callable[[str], None] = print) -> int:
         add("配置完整", False, str(e))
 
     up = updater_dir(target)
+    probe = os.path.join(up, ".doctor-write-probe-%d" % os.getpid())
     try:
         os.makedirs(up, exist_ok=True)
-        probe = os.path.join(up, ".doctor-write-probe")
         with open(probe, "w", encoding="utf-8") as f:
             f.write("ok")
-        os.remove(probe)
-        add("目录可写", True, up)
+        note = up
+        try:
+            os.remove(probe)
+        except OSError as e:      # 清理失败不代表目录不可写（如杀软/策略拦截删除）
+            note = "%s（探针文件清理失败: %s）" % (up, e)
+        add("目录可写", True, note)
     except OSError as e:
         add("目录可写", False, str(e))
 
