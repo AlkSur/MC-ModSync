@@ -98,9 +98,29 @@ def test_main_publish_client_without_version_returns_1(tmp_path) -> None:
     assert cli.main(["publish-client", "-c", str(tmp_path / "nope.json")]) == 1
 
 
-def test_main_fetch_mads_placeholder() -> None:
-    assert cli.main(["fetch-mods", "-c", "nope.json"]) == 1
+def test_main_package_client_placeholder() -> None:
     assert cli.main(["package-client", "-c", "nope.json"]) == 1
+
+
+def test_main_fetch_mods_bad_config_returns_1(tmp_path) -> None:
+    assert cli.main(["fetch-mods", "-c", str(tmp_path / "nope.json")]) == 1
+
+
+def test_main_fetch_mods_green_with_empty_lock(tmp_path) -> None:
+    """合法配置 + 空 mods 清单 -> fetch-mods 返回 0（无网络访问）。"""
+    repo = _make_repo(tmp_path)
+    key_file = str(tmp_path / "private.key")
+    pub_b64, key_file = signing.keygen(key_file)
+    cfg = _make_cfg(repo, key_file, pub_b64)
+    (repo / "server-mods").mkdir()
+    (repo / "client-mods").mkdir()
+    (repo / "pack.local.json").write_text(json.dumps(cfg), encoding="utf-8")
+    lock = repo / "mods.lock.json"
+    lock.write_text(json.dumps({"schemaVersion": 1,
+                                "packMeta": {"minecraftVersion": "1.21.1", "loader": "neoforge"},
+                                "mods": []}), encoding="utf-8")
+    assert cli.main(["fetch-mods", "-c", str(repo / "pack.local.json"),
+                     "--lock", str(lock)]) == 0
 
 
 # --------------------------------------------------------------------------

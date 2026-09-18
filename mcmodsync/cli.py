@@ -220,6 +220,21 @@ def _not_implemented(task: str) -> int:
     return EXIT_GENERIC
 
 
+def cmd_fetch_mods(args) -> int:
+    from . import fetcher
+
+    cfg = mconfig.load_config(args.config)
+    logger = logutil.setup_logger(None, name="mcmodsync")
+    lock_path = args.lock or "mods.lock.json"
+    try:
+        return fetcher.fetch_mods(cfg, lock_path, upgrade=args.upgrade,
+                                  lock_manual=args.lock_manual, dry_run=args.dry_run,
+                                  log=logger.info)
+    except fetcher.FetchError as e:
+        logger.info("fetch-mods 失败（码 %s）: %s" % (e.exit_code, e))
+        return e.exit_code
+
+
 def cmd_push_server(args) -> int:
     from . import pusher
 
@@ -290,10 +305,11 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--repo-dir", default=".")
     d.add_argument("--accept-new-host", action="store_true", help="首次连接放行未知主机")
 
-    f = sub.add_parser("fetch-mods", parents=[C], help="拉取 mod（占位，T-35 实现）")
+    f = sub.add_parser("fetch-mods", parents=[C], help="拉取 mod（Modrinth/CurseForge/manual）")
     f.add_argument("--upgrade", action="store_true")
     f.add_argument("--lock-manual", action="store_true")
     f.add_argument("--dry-run", action="store_true")
+    f.add_argument("--lock", default="mods.lock.json", help="mod 清单路径（默认 mods.lock.json）")
 
     ps = sub.add_parser("push-server", parents=[C], help="推送服务端变更")
     ps.add_argument("--dry-run", action="store_true")
@@ -316,21 +332,25 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     args_cfg = getattr(args, "config", None) or "./pack.local.json"
 
-    if args.command == "keygen":
-        return cmd_keygen(args.key_file)
-    if args.command == "doctor":
-        return doctor(args_cfg, repo_dir=args.repo_dir, offline=args.offline,
-                      accept_new_host=args.accept_new_host)
-    if args.command == "push-server":
-        return cmd_push_server(args)
-    if args.command == "rollback-server":
-        return cmd_rollback_server(args)
-    if args.command == "publish-client":
-        return cmd_publish_client(args)
-    if args.command == "fetch-mods":
-        return _not_implemented("T-33/T-35")
-    if args.command == "package-client":
-        return _not_implemented("T-50")
+    try:
+        if args.command == "keygen":
+            return cmd_keygen(args.key_file)
+        if args.command == "doctor":
+            return doctor(args_cfg, repo_dir=args.repo_dir, offline=args.offline,
+                          accept_new_host=args.accept_new_host)
+        if args.command == "push-server":
+            return cmd_push_server(args)
+        if args.command == "rollback-server":
+            return cmd_rollback_server(args)
+        if args.command == "publish-client":
+            return cmd_publish_client(args)
+        if args.command == "fetch-mods":
+            return cmd_fetch_mods(args)
+        if args.command == "package-client":
+            return _not_implemented("T-50")
+    except mconfig.ConfigError as e:
+        print("配置错误: %s" % e)
+        return EXIT_GENERIC
     parser.print_help()
     return EXIT_GENERIC
 

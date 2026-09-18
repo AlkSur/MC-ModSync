@@ -155,7 +155,8 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
                    dry_run: bool = False, log: Callable[[str], None] = print,
                    server_files: Optional[List[dict]] = None,
                    check_server_client: bool = False,
-                   local_manifest: Optional[dict] = None) -> int:
+                   local_manifest: Optional[dict] = None,
+                   lock_path: str = "mods.lock.json") -> int:
     if not version:
         raise PublishError(EXIT_GENERIC, "publish-client 必须提供 --version（缺失立即报错）")
 
@@ -171,6 +172,13 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
     if not files:
         raise PublishError(EXIT_GENERIC, "客户端源目录无 *.jar: %s" % source_dir)
     log("客户端源目录扫描: %d 个 jar" % len(files))
+    try:
+        from . import fetcher as _fetcher
+        _hint = _fetcher.lock_stale_hint(cfg, lock_path)
+        if _hint:
+            log("警告: " + _hint)
+    except Exception:
+        pass
 
     # 步骤2 基准清单（本地 state，或从云端恢复）
     old = local_manifest if local_manifest is not None else load_publish_state(state_file)
