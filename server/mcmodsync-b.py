@@ -1,3 +1,615 @@
+# GENERATED, do not edit
+# 由 tools/build_server.py 拼接生成（白名单纯标准库共享模块 + server/b_main.py）。
+# 请勿手工修改：CI 会重新生成并做防漂移 diff。
+
+from __future__ import annotations
+
+import hashlib
+import os
+from typing import Dict, List, Optional
+import re
+from typing import Union
+from typing import Dict, List
+import json
+from typing import Any, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
+import base64
+from typing import Any, Dict
+import sys
+from datetime import datetime, timezone
+
+
+# ===== hashing.py =====
+
+"""SHA-256 hashing and flat mods scanning.
+
+Spec sections: 3.3, 10.3
+"""
+
+CHUNK = 1024 * 1024
+
+EXIT_IO_ERROR = 19
+
+class FileEntry(dict):
+    """Manifest file entry: path/sha256/size plus optional extras."""
+
+    def __init__(self, path: str, sha256: str, size: int, **extra: object) -> None:
+        super().__init__(path=path, sha256=sha256, size=size)
+        self.update(extra)
+
+def hash_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def hash_file(path: str) -> Dict[str, object]:
+    """Stream-hash a file; returns {"sha256": hex, "size": bytes}."""
+    h = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as f:
+        while True:
+            block = f.read(CHUNK)
+            if not block:
+                break
+            h.update(block)
+            size += len(block)
+    return {"sha256": h.hexdigest(), "size": size}
+
+def is_jar(name: str) -> bool:
+    return name.lower().endswith(".jar")
+
+def scan_tree(root: str, subdir: str = "mods", exts: tuple = (".jar",),
+              recursive: bool = False) -> List[FileEntry]:
+    """Scan root/subdir for flat files matching exts (case-insensitive).
+
+    - one level only when recursive is False (spec: no subdirectory recursion)
+    - does not follow symlinks
+    - returns entries with "path" prefixed as "<subdir>/<name>" using "/"
+    """
+    target = os.path.join(root, subdir)
+    if not os.path.isdir(target):
+        return []
+    exts_l = tuple(e.lower() for e in exts)
+    entries: List[FileEntry] = []
+    if recursive:
+        walker = os.walk(target, followlinks=False)
+        for dirpath, _dirnames, filenames in walker:
+            for name in filenames:
+                if not name.lower().endswith(exts_l):
+                    continue
+                full = os.path.join(dirpath, name)
+                if os.path.islink(full):
+                    continue
+                rel = os.path.relpath(full, root).replace("\\", "/")
+                info = hash_file(full)
+                entries.append(FileEntry(rel, str(info["sha256"]), int(info["size"])))
+    else:
+        with os.scandir(target) as it:
+            for d in it:
+                if d.is_symlink() or not d.is_file():
+                    continue
+                if not d.name.lower().endswith(exts_l):
+                    continue
+                rel = subdir + "/" + d.name
+                info = hash_file(d.path)
+                entries.append(FileEntry(rel, str(info["sha256"]), int(info["size"])))
+    entries.sort(key=lambda e: e["path"])
+    return entries
+
+def entry_map(entries: List[dict]) -> Dict[str, dict]:
+    """List of entries -> {path: entry} map (planner input)."""
+    return {e["path"]: e for e in entries}
+
+def mtime_of(path: str) -> Optional[int]:
+    try:
+        return int(os.stat(path).st_mtime)
+    except OSError:
+        return None
+
+
+# ===== paths.py =====
+
+"""Relative path normalization and safety checks.
+
+Spec section: 10.1
+"""
+
+EXIT_UNSAFE_PATH = 13
+
+_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+class UnsafePath(ValueError):
+    """Raised when a relative path is illegal or escapes its base."""
+
+    exit_code = EXIT_UNSAFE_PATH
+
+def normalize_rel(p: str) -> str:
+    """Normalize a manifest-relative path; reject illegal forms.
+
+    - unify backslashes to forward slashes
+    - strip a leading "./"
+    - reject: empty, absolute, Windows drive prefix, any ".." segment
+    """
+    if not isinstance(p, str):
+        raise UnsafePath("路径必须是字符串")
+    s = p.replace("\\", "/")
+    while s.startswith("./"):
+        s = s[2:]
+    if s == "":
+        raise UnsafePath("空路径: %r" % (p,))
+    if s.startswith("/"):
+        raise UnsafePath("绝对路径被拒绝: %r" % (p,))
+    if _DRIVE_RE.match(s):
+        raise UnsafePath("Windows 盘符路径被拒绝: %r" % (p,))
+    for seg in s.split("/"):
+        if seg == "..":
+            raise UnsafePath("包含 .. 的路径被拒绝: %r" % (p,))
+    return s
+
+def is_within(child: str, parent: str) -> bool:
+    """True if resolved *child* equals or lives under resolved *parent*."""
+    try:
+        c = os.path.realpath(child)
+        p = os.path.realpath(parent)
+        return os.path.commonpath([c, p]) == p
+    except (ValueError, OSError):
+        return False
+
+def safe_join(base: Union[str, os.PathLike], rel: str) -> str:
+    """Join *base* with a normalized *rel*; guarantee the result stays inside base."""
+    norm = normalize_rel(rel)
+    base_s = os.fspath(base)
+    candidate = os.path.normpath(os.path.join(base_s, norm))
+    if not is_within(candidate, base_s):
+        raise UnsafePath("路径越界: %r" % (rel,))
+    return candidate
+
+
+# ===== planner.py =====
+
+"""Change planner: pure diff between base and desired file maps.
+
+Spec section: 10.2
+"""
+
+def plan(base: Dict[str, dict], desired: Dict[str, dict]) -> Dict[str, List[dict]]:
+    """Compare {path: entry} maps; returns added/replaced/deleted/unchanged lists.
+
+    - added:    in desired, not in base
+    - replaced: in both, sha256 differs
+    - deleted:  in base, not in desired
+    - unchanged: in both, sha256 identical
+    Rename with same content shows up as added + deleted (blob dedup handles it).
+    """
+    added: List[dict] = []
+    replaced: List[dict] = []
+    deleted: List[dict] = []
+    unchanged: List[dict] = []
+
+    for path, want in sorted(desired.items()):
+        cur = base.get(path)
+        if cur is None:
+            added.append({
+                "path": path,
+                "newSha256": want["sha256"],
+                "size": want["size"],
+            })
+        elif cur.get("sha256") != want["sha256"]:
+            replaced.append({
+                "path": path,
+                "oldSha256": cur.get("sha256"),
+                "newSha256": want["sha256"],
+                "size": want["size"],
+            })
+        else:
+            unchanged.append({
+                "path": path,
+                "sha256": want["sha256"],
+                "size": want["size"],
+            })
+
+    for path, cur in sorted(base.items()):
+        if path not in desired:
+            deleted.append({
+                "path": path,
+                "oldSha256": cur.get("sha256"),
+                "size": cur.get("size"),
+            })
+
+    return {
+        "added": added,
+        "replaced": replaced,
+        "deleted": deleted,
+        "unchanged": unchanged,
+    }
+
+
+# ===== manifest.py =====
+
+"""Manifest JSON models, atomic IO and atomic file copy.
+
+Spec sections: 3.1, 4.x
+"""
+
+SUPPORTED_SCHEMA_VERSION = 1
+
+EXIT_IO_ERROR = 19
+
+def atomic_write(path: str, data: bytes) -> None:
+    """Temp file in same directory + flush + fsync + os.replace."""
+    d = os.path.dirname(os.path.abspath(path))
+    os.makedirs(d, exist_ok=True)
+    tmp = os.path.join(d, ".%s.tmp-%d" % (os.path.basename(path), os.getpid()))
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+def atomic_write_text(path: str, text: str) -> None:
+    atomic_write(path, text.encode("utf-8"))
+
+def read_json(path: str) -> Any:
+    with open(path, "rb") as f:
+        return json.loads(f.read().decode("utf-8"))
+
+def write_json(path: str, obj: Any) -> None:
+    atomic_write_text(path, json.dumps(obj, ensure_ascii=False, indent=2) + "\n")
+
+def atomic_copy(src: str, dst: str) -> None:
+    """Copy via temp file in dst directory + fsync + os.replace."""
+    d = os.path.dirname(os.path.abspath(dst))
+    os.makedirs(d, exist_ok=True)
+    tmp = os.path.join(d, ".%s.tmp-%d" % (os.path.basename(dst), os.getpid()))
+    with open(src, "rb") as fi, open(tmp, "wb") as fo:
+        while True:
+            block = fi.read(1024 * 1024)
+            if not block:
+                break
+            fo.write(block)
+        fo.flush()
+        os.fsync(fo.fileno())
+    os.replace(tmp, dst)
+
+def check_schema(obj: Dict[str, Any], max_supported: int = SUPPORTED_SCHEMA_VERSION) -> None:
+    v = obj.get("schemaVersion")
+    if not isinstance(v, int):
+        raise ValueError("缺少 schemaVersion")
+    if v > max_supported:
+        raise ValueError("schemaVersion %d 高于本程序支持值 %d" % (v, max_supported))
+
+def make_state(pack_id: str, version: Optional[str], applied_at: str,
+               files: List[dict]) -> Dict[str, Any]:
+    return {
+        "schemaVersion": SUPPORTED_SCHEMA_VERSION,
+        "packId": pack_id,
+        "lastAppliedVersion": version,
+        "appliedAt": applied_at,
+        "files": files,
+    }
+
+def make_desired(pack_id: str, version: str, files: List[dict]) -> Dict[str, Any]:
+    return {
+        "schemaVersion": SUPPORTED_SCHEMA_VERSION,
+        "packId": pack_id,
+        "version": version,
+        "files": files,
+    }
+
+
+# ===== locking.py =====
+
+"""Cross-platform file lock (POSIX fcntl / Windows msvcrt).
+
+Spec sections: 3.5, 10.6
+"""
+
+EXIT_LOCK_HELD = 10
+
+class LockHeld(Exception):
+    """Raised when the lock file is already held by another process."""
+
+    exit_code = EXIT_LOCK_HELD
+
+class FileLock:
+    """Exclusive non-blocking lock via a lock file; context manager."""
+
+    def __init__(self, path: Union[str, os.PathLike]) -> None:
+        self.path = os.fspath(path)
+        self._fd = None
+
+    def acquire(self) -> None:
+        if self._fd is not None:
+            return
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            self._lock_fd(fd)
+        except OSError:
+            os.close(fd)
+            raise LockHeld("锁被占用: %s" % self.path)
+        self._fd = fd
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        try:
+            self._unlock_fd(self._fd)
+        finally:
+            os.close(self._fd)
+            self._fd = None
+
+    def _lock_fd(self, fd: int) -> None:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock_fd(self, fd: int) -> None:
+        if os.name == "nt":
+            import msvcrt
+            try:
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+
+    def __enter__(self) -> "FileLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.release()
+
+
+# ===== platform.py =====
+
+"""Platform helpers: same-device check and game-running detection.
+
+Spec sections: 5.2-2 (st_dev), 9.2-3 (game process detection)
+"""
+
+GAME_PROC_KEYWORDS = ("java", "javaw", "minecraft")
+
+def same_device(a: str, b: str) -> bool:
+    """True if both paths are on the same filesystem (st_dev)."""
+    try:
+        return os.stat(a).st_dev == os.stat(b).st_dev
+    except OSError:
+        return False
+
+def disk_usage(path: str):
+    """Wrapper for shutil.disk_usage (test seams can monkeypatch this)."""
+    import shutil
+    return shutil.disk_usage(path)
+
+def is_game_running() -> bool:
+    """Detect java/javaw/minecraft processes among running processes.
+
+    Windows: enumerate via psutil-free approach (toolhelp snapshot through
+    ctypes); POSIX: scan /proc/<pid>/comm and cmdline.
+    """
+    if os.name == "nt":
+        return _win_game_running()
+    return _posix_game_running()
+
+def _matches(name: str) -> bool:
+    low = name.lower()
+    for kw in GAME_PROC_KEYWORDS:
+        if kw in low:
+            return True
+    return False
+
+def _posix_game_running() -> bool:
+    try:
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            for fname in ("comm", "cmdline"):
+                try:
+                    with open(os.path.join("/proc", pid, fname), "rb") as f:
+                        data = f.read()
+                except OSError:
+                    continue
+                if _matches(data.decode("utf-8", "ignore")):
+                    return True
+    except OSError:
+        return False
+    return False
+
+def _win_game_running() -> bool:
+    import ctypes
+    import ctypes.wintypes as wt
+
+    TH32CS_SNAPPROCESS = 0x2
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wt.DWORD),
+            ("cntUsage", wt.DWORD),
+            ("th32ProcessID", wt.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wt.DWORD),
+            ("cntThreads", wt.DWORD),
+            ("th32ParentProcessID", wt.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wt.DWORD),
+            ("szExeFile", wt.WCHAR * 260),
+        ]
+
+    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snap == -1:
+        return False
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if _matches(entry.szExeFile):
+                return True
+            ok = kernel32.Process32NextW(snap, ctypes.byref(entry))
+        return False
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+# ===== applier.py =====
+
+"""Atomic apply / backup / rollback shared pure logic.
+
+Used by C directly; stitched into the single-file B build (spec [6] applier,
+[T-12] 白名单). B's apply/rollback orchestration lives in server/b_main.py and
+calls into these helpers.
+
+关键差异（与 [T-12] apply 步骤9 对齐）:
+  B 端因步骤2 已保证 staging 与 mods/ 同分区，added/replaced 一律用
+  os.replace(staging_blob, target) **原子移入，不产生复制**（move=True）。
+  C 端 staging 位于 _updater/ 内，按 T-40 使用「临时文件 + os.replace」（move=False）。
+"""
+
+FaultHook = Optional[Callable[[str], None]]
+
+class ApplyError(Exception):
+    def __init__(self, exit_code: int, message: str) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
+
+def backup_changes(entries: List[dict], backup_root: str, root: str,
+                   log: Callable[[str], None]) -> List[dict]:
+    """Copy replaced/deleted current disk files into backup_root; fill oldSha256/oldSize.
+
+    entries: merged list of replaced+deleted change dicts with "path".
+    Copies use atomic_copy; oldSha256/oldSize are recomputed from disk BEFORE copying.
+    Returns the enriched entries (with backupPath + oldSha256 + oldSize filled).
+    """
+    out: List[dict] = []
+    for e in entries:
+        rel = e["path"]
+        src = os.path.join(root, rel.replace("/", os.sep))
+        if not os.path.isfile(src):
+            log("警告: 待备份文件不存在，跳过: %s" % rel)
+            e = dict(e)
+            e.setdefault("oldSha256", None)
+            e.setdefault("oldSize", None)
+            out.append(e)
+            continue
+        info = hash_file(src)
+        dst = os.path.join(backup_root, rel.replace("/", os.sep))
+        manifest.atomic_copy(src, dst)
+        e = dict(e)
+        e["oldSha256"] = str(info["sha256"])
+        e["oldSize"] = int(info["size"])
+        e["backupPath"] = os.path.relpath(dst, os.path.dirname(backup_root)).replace("\\", "/")
+        log("已备份: %s (sha256=%s size=%d)" % (rel, e["oldSha256"], e["oldSize"]))
+        out.append(e)
+    return out
+
+def apply_change_set(changes: Dict[str, List[dict]], staging: str, root: str,
+                     log: Callable[[str], None],
+                     fault: Optional[Callable[[str], None]] = None,
+                     move: bool = False) -> Dict[str, int]:
+    """Apply added/replaced/deleted; idempotent per file, tolerant of missing targets.
+
+    - added/replaced: 目标已等于 newSha256 -> 跳过（幂等）；否则
+      move=True  -> os.replace(staging blob, target)（B 端，同分区原子移入，不复制）
+      move=False -> 临时文件 + os.replace 复制（C 端）
+    - deleted: os.remove；缺失则记 warning 并跳过
+    - fault: 每处理完一个文件后回调（测试注入崩溃点 "mid-apply"）
+    """
+    counts = {"added": 0, "replaced": 0, "deleted": 0, "skipped": 0, "unchanged": 0}
+    for kind in ("added", "replaced"):
+        for e in changes.get(kind, []):
+            rel = e["path"]
+            sha = e["newSha256"]
+            blob = os.path.join(staging, "blobs", sha[0:2], sha[2:4], sha)
+            dst = os.path.join(root, rel.replace("/", os.sep))
+            if os.path.isfile(dst) and str(hash_file(dst)["sha256"]) == sha:
+                counts["unchanged"] += 1
+                log("已就位，跳过(%s): %s" % (kind, rel))
+            elif not os.path.isfile(blob):
+                raise ApplyError(11, "staging 缺件: %s" % rel)
+            elif move:
+                os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+                os.replace(blob, dst)
+                counts[kind] += 1
+                log("已应用(移入, %s): %s" % (kind, rel))
+            else:
+                manifest.atomic_copy(blob, dst)
+                counts[kind] += 1
+                log("已应用(复制, %s): %s" % (kind, rel))
+            if fault:
+                fault("mid-apply")
+    for e in changes.get("deleted", []):
+        rel = e["path"]
+        dst = os.path.join(root, rel.replace("/", os.sep))
+        if os.path.isfile(dst):
+            os.remove(dst)
+            counts["deleted"] += 1
+            log("已删除: %s" % rel)
+        else:
+            counts["skipped"] += 1
+            log("警告: 删除目标不存在，跳过: %s" % rel)
+        if fault:
+            fault("mid-apply")
+    return counts
+
+def verify_against(root: str, entries: List[dict], sha_key: str,
+                   log: Callable[[str], None]) -> None:
+    """Recheck restored files hash; raises ApplyError(19) on mismatch."""
+    for e in entries:
+        rel = e["path"]
+        f = os.path.join(root, rel.replace("/", os.sep))
+        want = e.get(sha_key)
+        if want is None or not os.path.isfile(f):
+            raise ApplyError(19, "回滚复核失败，文件缺失: %s" % rel)
+        got = hash_file(f)["sha256"]
+        if got != want:
+            raise ApplyError(19, "回滚复核失败，哈希不符: %s" % rel)
+        log("复核通过: %s" % rel)
+
+
+# ===== canonicaljson.py =====
+
+def canonical(obj: Any) -> bytes:
+    """Deep sort keys, compact separators, UTF-8, no whitespace/newline."""
+    return json.dumps(_sort_keys(obj), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+def _sort_keys(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _sort_keys(obj[k]) for k in sorted(obj.keys())}
+    if isinstance(obj, list):
+        return [_sort_keys(v) for v in obj]
+    return obj
+
+def strip_signature(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Deep copy without the 'signature' field."""
+    import copy
+    clone = copy.deepcopy(obj)
+    clone.pop("signature", None)
+    return clone
+
+
+# ===== 模块代理（供模块限定名访问，如 manifest.atomic_copy）=====
+from types import SimpleNamespace as _SimpleNamespace
+
+hashing = _SimpleNamespace(CHUNK=CHUNK, EXIT_IO_ERROR=EXIT_IO_ERROR, FileEntry=FileEntry, hash_bytes=hash_bytes, hash_file=hash_file, is_jar=is_jar, scan_tree=scan_tree, entry_map=entry_map, mtime_of=mtime_of)
+paths = _SimpleNamespace(EXIT_UNSAFE_PATH=EXIT_UNSAFE_PATH, _DRIVE_RE=_DRIVE_RE, UnsafePath=UnsafePath, normalize_rel=normalize_rel, is_within=is_within, safe_join=safe_join)
+planner = _SimpleNamespace(plan=plan)
+manifest = _SimpleNamespace(SUPPORTED_SCHEMA_VERSION=SUPPORTED_SCHEMA_VERSION, EXIT_IO_ERROR=EXIT_IO_ERROR, atomic_write=atomic_write, atomic_write_text=atomic_write_text, read_json=read_json, write_json=write_json, atomic_copy=atomic_copy, check_schema=check_schema, make_state=make_state, make_desired=make_desired)
+locking = _SimpleNamespace(EXIT_LOCK_HELD=EXIT_LOCK_HELD, LockHeld=LockHeld, FileLock=FileLock)
+platform = _SimpleNamespace(GAME_PROC_KEYWORDS=GAME_PROC_KEYWORDS, same_device=same_device, disk_usage=disk_usage, is_game_running=is_game_running, _matches=_matches, _posix_game_running=_posix_game_running, _win_game_running=_win_game_running)
+applier = _SimpleNamespace(FaultHook=FaultHook, ApplyError=ApplyError, backup_changes=backup_changes, apply_change_set=apply_change_set, verify_against=verify_against)
+canonicaljson = _SimpleNamespace(canonical=canonical, _sort_keys=_sort_keys, strip_signature=strip_signature)
+
+__MCMODSYNC_STITCHED__ = True
+
+# ===== server/b_main.py =====
+
 """B main: single-file server script subcommand implementations.
 
 Spec sections: [5] T-12（协议步骤为硬约束）, [3.1]-[3.4], [2.5]-[2.7]
@@ -11,12 +623,7 @@ namespace plus lightweight module proxies.
 For the in-package version (tests import server.b_main directly), a small
 shim maps those names from mcmodsync package modules.
 """
-from __future__ import annotations
 
-import json
-import os
-import sys
-from datetime import datetime, timezone
 
 # --- package shim (removed/replaced by build stitching) ---------------------
 # Single-file builds define __MCMODSYNC_STITCHED__ before this block; all
@@ -25,9 +632,9 @@ from datetime import datetime, timezone
 if globals().get("__MCMODSYNC_STITCHED__"):
     _applier = sys.modules[__name__]
 else:
-    from mcmodsync import hashing, manifest, paths, planner, platform  # noqa: F401
-    from mcmodsync.locking import FileLock, LockHeld  # noqa: F401
-    from mcmodsync import applier as _applier  # noqa: F401
+    pass
+    pass
+    pass
 
 PROTOCOL_VERSION = "MC-ModSync-B 2.0"
 SUPPORTED_SCHEMA_VERSION = 1
