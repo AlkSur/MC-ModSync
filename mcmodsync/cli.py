@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from typing import Callable, List, Optional, Tuple
 
 from . import config as mconfig
@@ -371,6 +372,23 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+# 需要在开始处打印运行分隔头的子命令（doctor 自带表头，故不在内）
+_RUN_HEADER_CMDS = ("fetch-mods", "push-server", "rollback-server",
+                    "publish-client", "package-client")
+
+
+def print_run_header(command: str, log: Callable[[str], None] = print) -> None:
+    """每次运行打印一段带命令名与时间的分隔头。
+
+    连续跑多条命令时，一眼就能分清哪段输出属于哪次运行。
+    纯 ASCII，避免在 cp1252 等代码页下编码失败。
+    """
+    log(console.dim("=" * 62))
+    log(console.bold("mcmodsync %s   |   %s"
+                     % (command, time.strftime("%Y-%m-%d %H:%M:%S"))))
+    log(console.dim("=" * 62))
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -381,6 +399,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.config = args_cfg
     if getattr(args, "no_color", False):
         console.disable_color()
+    if args.command in _RUN_HEADER_CMDS:
+        print_run_header(args.command)
 
     try:
         if args.command == "keygen":
