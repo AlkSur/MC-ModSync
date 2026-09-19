@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from typing import List, Optional
 
 _SENSITIVE_KEYS = ("accessKey", "secretKey", "password", "token", "privateKey")
@@ -41,6 +42,43 @@ def mask_text(text: str) -> str:
     return text
 
 
+class _ColorFormatter(logging.Formatter):
+    """控制台专用：按级别 / 关键词着色。
+
+    只挂在 console handler 上；文件 handler 继续用无色 formatter，
+    避免 ANSI 转义码混进日志文件。重定向 / 非 tty 时自动降级为纯文本。
+    """
+
+    _LEVEL_COLOR = {
+        logging.WARNING: "WARN",
+        logging.ERROR: "FAIL",
+        logging.CRITICAL: "FAIL",
+    }
+    # INFO 级里按内容高亮（顺序敏感：先判失败，再判警告，最后判成功）
+    _FAIL_WORDS = ("失败", "错误", "不符", "不一致")
+    _WARN_WORDS = ("警告", "跳过", "未识别", "缺失")
+    _OK_WORDS = ("成功", "完成", "全绿", "已就绪", "通过")
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        try:
+            from . import console
+        except Exception:
+            return text
+        if not console.supports_color():
+            return text
+        level = self._LEVEL_COLOR.get(record.levelno)
+        if level:
+            return console.paint(text, level)
+        if any(w in text for w in self._FAIL_WORDS):
+            return console.paint(text, "FAIL")
+        if any(w in text for w in self._WARN_WORDS):
+            return console.paint(text, "WARN")
+        if any(w in text for w in self._OK_WORDS):
+            return console.paint(text, "PASS")
+        return text
+
+
 class _MaskFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
@@ -64,12 +102,15 @@ def setup_logger(log_file: Optional[str], name: str = "mcmodsync",
     for h in list(logger.handlers):
         logger.removeHandler(h)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+    color_fmt = _ColorFormatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
     mf = _MaskFilter()
 
     if console:
-        ch = logging.StreamHandler()
+        # 显式走 stdout：与 print（表头、摘要）同一条流，避免 stdout/stderr
+        # 缓冲策略不同导致的顺序错乱；同时让 `> log.txt` 能拿到完整日志。
+        ch = logging.StreamHandler(sys.stdout)
         ch.setLevel(logging.INFO)
-        ch.setFormatter(fmt)
+        ch.setFormatter(color_fmt)
         ch.addFilter(mf)
         logger.addHandler(ch)
 

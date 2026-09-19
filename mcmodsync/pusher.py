@@ -428,13 +428,25 @@ def push_server(cfg, conn, dry_run: bool = False, check_server_client: bool = Fa
         doc = build_desired(cfg["packId"], version, desired_files)
         upload_desired(conn, paths, doc, tmp_dir, log)
 
-        # 步骤8 blob
-        upload_blobs(conn, c["source_mods"], desired_files, paths, log)
+        # 步骤8 blob —— 只上传变更集真正需要的文件（added + replaced）
+        #
+        # B 端 _verify_staging 只校验 added/replaced 的 staging blob；未变文件沿用
+        # 远端 mods/ 里的现有文件（blob 缺失但目标 sha256 一致时判定「已应用」），
+        # 不需要重新上传。原先这里传的是全部 desired_files，会对每个 jar 做一次
+        # SFTP stat，blobs 池为空时（例如首次推送、或上次 apply 用 os.replace 把
+        # blob 移走后）就会把全部 jar 重传一遍 —— 即使一个变更都没有。
+        need_paths = {e["path"] for e in (diff["added"] + diff["replaced"])}
+        needed = [e for e in desired_files if e["path"] in need_paths]
+        if needed:
+            upload_blobs(conn, c["source_mods"], needed, paths, log)
+        else:
+            log("blob 上传: 无新增/替换，跳过（未变 %d 个沿用远端现有文件）"
+                % len(diff["unchanged"]))
 
         # 步骤9 apply（码 11 自动重传并重试一次）
         def _reupload():
             upload_desired(conn, paths, doc, tmp_dir, log)
-            upload_blobs(conn, c["source_mods"], desired_files, paths, log, skip_existing=False)
+            upload_blobs(conn, c["source_mods"], needed, paths, log, skip_existing=False)
 
         rc, out, err = apply_with_retry(
             lambda: b_apply(conn, c["server_dir"], c["remote_b"], paths, version,
