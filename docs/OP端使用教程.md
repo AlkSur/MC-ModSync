@@ -90,6 +90,20 @@ mcmodsync doctor
    mcmodsync doctor
    ```
 
+   结果按颜色区分，扫一眼就知道情况：
+
+   | 颜色 | 标记 | 含义 |
+   | --- | --- | --- |
+   | 绿 | `[PASS]` | 通过 |
+   | 红 | `[FAIL]` | 必须修，不修发布不了 |
+   | 橙 | `[SKIP]` | 环境不具备，这项没检查（例如当前目录不是 git 仓库），**不影响发布** |
+
+   要把结果存成日志文件时加 `--no-color`，免得颜色转义码混进日志：
+
+   ```
+   mcmodsync doctor --no-color > doctor.log
+   ```
+
 ## 二、日常发布流程（每次更新 mod 就按这个走）
 
 ### 第 1 步：整理 mod
@@ -169,6 +183,9 @@ mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
 
 ## 四、常见问题
 
+- **`doctor` 报"publicKey 与私钥不匹配"**：说明 `pack.local.json` 里的 `client.publicKey` 和你机器上 `~/.mcmodsync/private.key` 不是一对（常见于换了电脑、或私钥被重新生成过）。**玩家端还没发出去**时，直接把私钥对应的公钥填回配置，然后重新打包玩家端即可；**已经发出去**了就必须重新分发，所有玩家都要重新下载更新器。
+- **`doctor` 报"不是 git 仓库"（橙色）**：正常，解压下来的 zip / 直接拷贝的文件夹都没有 `.git`。这项只是检查凭证有没有被提交进 git，不适用就跳过，不影响使用。
+- **`doctor` 报对象存储上传失败**：多半是本机网络或代理的问题（挂了代理就先关掉试试），换个网络再跑一次确认。
 - **push-server 报码 11**：脚本会自动重传并重试一次；还失败就把提示里的 B 日志路径发给维护者。
 - **publish-client 忘了写 --version**：会直接报错，补上版本号再跑。
 - **换电脑了**：带上 `pack.local.json`、私钥（`~/.mcmodsync/private.key`）和 mods.lock.json 就能接着干。

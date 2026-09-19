@@ -50,7 +50,7 @@ def _expand(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_config(path: str) -> "Config":
     """Load pack config JSON; missing required fields raise ConfigError naming them."""
-    if not os.path.isfile(path):
+    if not isinstance(path, str) or not os.path.isfile(path):
         raise ConfigError("配置文件不存在: %s" % path)
     with open(path, "rb") as f:
         try:

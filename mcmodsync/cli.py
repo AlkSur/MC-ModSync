@@ -18,7 +18,7 @@ import sys
 from typing import Callable, List, Optional, Tuple
 
 from . import config as mconfig
-from . import logutil, signing
+from . import console, logutil, signing
 
 EXIT_OK = 0
 EXIT_GENERIC = 1
@@ -97,8 +97,16 @@ def doctor(cfg_path: str, repo_dir: str = ".", offline: bool = False,
     name = os.path.basename(cfg_path)
     rc_ignore, _o = _git(["check-ignore", "-q", name], repo_dir)
     rc_tracked, _o2 = _git(["ls-files", "--error-unmatch", name], repo_dir)
+    rc_repo, out_repo = _git(["rev-parse", "--is-inside-work-tree"], repo_dir)
+    in_repo = rc_repo == 0 and out_repo.strip() == "true"
     if rc_ignore == 127:
         add("git 可用性", None, "未检测到 git，跳过入库检查")
+    elif not in_repo:
+        # 非 git 目录（例如解压得到的副本）：check-ignore 会以 128 失败，
+        # 既不是"已忽略"也不是"未忽略"，属环境不适用，不应判 FAIL。
+        add("%s 入库检查" % name, None,
+            "当前目录不是 git 仓库，跳过（AC-6 不适用）；"
+            "若此处将来要提交到 git，先确认 .gitignore 已含 %s" % name)
     else:
         add("%s 被 .gitignore 覆盖" % name, rc_ignore == 0,
             "" if rc_ignore == 0 else "未忽略！请加入 .gitignore")
@@ -195,19 +203,22 @@ def doctor(cfg_path: str, repo_dir: str = ".", offline: bool = False,
 
     # 输出
     fails = 0
-    log("=" * 62)
-    log("mcmodsync doctor")
-    log("=" * 62)
+    skips = 0
+    log(console.dim("=" * 62))
+    log(console.bold("mcmodsync doctor"))
+    log(console.dim("=" * 62))
     for name, status, detail in results:
-        mark = {"PASS": "[PASS]", "FAIL": "[FAIL]", "SKIP": "[SKIP]"}[status]
-        log("%s %s%s" % (mark, name, (" — " + detail) if detail else ""))
+        log(console.status_line(status, name, detail))
         if status == "FAIL":
             fails += 1
-    log("-" * 62)
+        elif status == "SKIP":
+            skips += 1
+    log(console.dim("-" * 62))
     if fails:
-        log("结论: %d 项 FAIL，需修复后才能发布" % fails)
+        log(console.paint("结论: %d 项 FAIL，需修复后才能发布" % fails, "FAIL"))
         return EXIT_GENERIC
-    log("结论: 全绿（SKIP 项表示环境未提供或 offline）")
+    tip = "结论: 全绿" + ("（%d 项 SKIP 表示环境未提供或 offline）" % skips if skips else "")
+    log(console.paint(tip, "PASS"))
     return EXIT_OK
 
 
@@ -312,6 +323,8 @@ def _common_parent() -> argparse.ArgumentParser:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mcmodsync", description="MC-ModSync A 端工具")
     p.add_argument("-c", "--config", default=None, help="配置文件（默认 ./pack.local.json）")
+    p.add_argument("--no-color", action="store_true",
+                   help="关闭彩色输出（重定向到日志文件时用）")
     sub = p.add_subparsers(dest="command", required=True)
     C = _common_parent()
 
@@ -355,6 +368,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     args_cfg = getattr(args, "config", None) or "./pack.local.json"
+    # 各 cmd_* 直接读 args.config；未显式传 -c 时统一兜底成 ./pack.local.json，
+    # 否则它们会拿到 None 并在 load_config 处抛 TypeError（教程里的命令都不带 -c）。
+    if hasattr(args, "config"):
+        args.config = args_cfg
+    if getattr(args, "no_color", False):
+        console.disable_color()
 
     try:
         if args.command == "keygen":
