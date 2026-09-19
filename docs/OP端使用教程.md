@@ -127,11 +127,13 @@ mcmodsync doctor
 >
 > 它会读取 `client-mods/` 里的 jar，按**文件哈希**去 Modrinth / CurseForge 反查来源；名字对不上但哈希一致的也会认出来。认出来的写成下载条目，**认不出来的标成本地文件**——本地文件照常参与推送和发布，只是不会自动升级。
 >
-> 结果先写到 `mods.lock.generated.json`（不碰你的 `mods.lock.json`），确认没问题再加 `--write` 正式写入：
+> 结果先写到 `mods.lock.generated.json`（不碰你的 `mods.lock.json`）。看完确认没问题，再应用成正式文件：
 >
 > ```
-> .\.venv\Scripts\python.exe tools\gen_lock.py --write
+> .\.venv\Scripts\python.exe tools\gen_lock.py --apply
 > ```
+>
+> 这一步**不联网、一秒完成**，还会自动把原文件备份成 `mods.lock.json.bak`。（用 `--write` 也能一步到位写完，但那会重新联网再查一遍。）
 >
 > **服务端不用登记**：`server-mods/` 走 SSH 直推，不需要知道平台来源，所以脚本默认只扫客户端。要连服务端一起登记才加 `--only both`。
 
@@ -210,7 +212,8 @@ mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
 | `mcmodsync publish-client --version X.Y.Z` | 发布客户端到对象存储 |
 | `mcmodsync package-client` | 重新打包玩家端（只有更新器本身改了才需要） |
 | `python tools\gen_lock.py` | 扫描 client-mods/ 的 jar，自动把平台来源写进锁文件 |
-| `python tools\gen_lock.py --write` | 同上，但正式覆盖 mods.lock.json（默认只写 generated 文件） |
+| `python tools\gen_lock.py --apply` | 把生成结果应用成正式的 mods.lock.json（不联网、秒完成，自动备份原文件） |
+| `python tools\gen_lock.py --write` | 一步到位生成并覆盖（会重新联网再查一遍） |
 | `python tools\gen_lock.py --only both` | 连 server-mods/ 一起登记（默认只扫客户端） |
 
 ## 四、常见问题
