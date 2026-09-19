@@ -19,6 +19,17 @@ mcmodsync: 术语 'mcmodsync' 不会被识别为 cmdlet、函数、脚本文件�
 
 在仓库根目录任选一种方式解决（推荐 A）：
 
+**0. 先确认有没有虚拟环境（下载 zip / clone 的仓库默认没有）**
+
+仓库根目录里如果没有 `.venv` 文件夹，就先建一个并装依赖，**只需做一次**：
+
+```
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+第二条要联网下载依赖，装完就有了。已经有 `.venv` 的直接跳到 A。
+
 **A. 激活仓库自带的虚拟环境（只对当前窗口有效，最稳）**
 
 PowerShell 里：
@@ -108,7 +119,25 @@ mcmodsync doctor
 
 ### 第 1 步：整理 mod
 
-- **平台能下到的 mod**：写进 `mods.lock.json`，然后跑：
+> **`fetch-mods` 只认 `mods.lock.json` 里登记过的条目**，它不会自己去扫目录。刚上手不用手写，用仓库自带的脚本生成：
+>
+> ```
+> .\.venv\Scripts\python.exe tools\gen_lock.py
+> ```
+>
+> 它会读取 `client-mods/` 里的 jar，按**文件哈希**去 Modrinth / CurseForge 反查来源；名字对不上但哈希一致的也会认出来。认出来的写成下载条目，**认不出来的标成本地文件**——本地文件照常参与推送和发布，只是不会自动升级。
+>
+> 结果先写到 `mods.lock.generated.json`（不碰你的 `mods.lock.json`），确认没问题再加 `--write` 正式写入：
+>
+> ```
+> .\.venv\Scripts\python.exe tools\gen_lock.py --write
+> ```
+>
+> **服务端不用登记**：`server-mods/` 走 SSH 直推，不需要知道平台来源，所以脚本默认只扫客户端。要连服务端一起登记才加 `--only both`。
+
+之后日常更新：
+
+- **平台能下到的 mod**：直接在 `mods.lock.json` 的 `mods` 数组里加条目，然后跑：
 
   ```
   mcmodsync fetch-mods
@@ -180,6 +209,9 @@ mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
 | `mcmodsync rollback-server` | 回滚服务端到上一版 |
 | `mcmodsync publish-client --version X.Y.Z` | 发布客户端到对象存储 |
 | `mcmodsync package-client` | 重新打包玩家端（只有更新器本身改了才需要） |
+| `python tools\gen_lock.py` | 扫描 client-mods/ 的 jar，自动把平台来源写进锁文件 |
+| `python tools\gen_lock.py --write` | 同上，但正式覆盖 mods.lock.json（默认只写 generated 文件） |
+| `python tools\gen_lock.py --only both` | 连 server-mods/ 一起登记（默认只扫客户端） |
 
 ## 四、常见问题
 
@@ -188,5 +220,6 @@ mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
 - **`doctor` 报对象存储上传失败**：多半是本机网络或代理的问题（挂了代理就先关掉试试），换个网络再跑一次确认。
 - **push-server 报码 11**：脚本会自动重传并重试一次；还失败就把提示里的 B 日志路径发给维护者。
 - **publish-client 忘了写 --version**：会直接报错，补上版本号再跑。
+- **`fetch-mods` 摘要三项都是 0**：因为 `mods.lock.json` 的 `mods` 是空数组。它只处理登记过的条目，**不会扫目录里已有的 jar**。用 `python tools\gen_lock.py` 自动登记一遍即可；已经放好的 jar 不去登记也不影响推送和发布。
 - **换电脑了**：带上 `pack.local.json`、私钥（`~/.mcmodsync/private.key`）和 mods.lock.json 就能接着干。
 - **怀疑凭证泄露**：先跑 `mcmodsync doctor` 里的泄露检查；真泄露了必须换钥，光删文件没用。

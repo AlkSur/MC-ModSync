@@ -287,8 +287,12 @@ def cf_verify(mod_id: str, sha1: str, api_key: str) -> tuple:
 # 主流程
 # --------------------------------------------------------------------------
 
-def scan(cfg: dict, repo: str) -> dict:
-    """返回 fileName -> {side, path}；两边都有 -> both。"""
+def scan(cfg: dict, repo: str, only: str = "both") -> dict:
+    """返回 fileName -> {side, path}；两边都有 -> both。
+
+    server-mods 是直接 SSH 推送的（push-server），不需要知道平台来源；
+    只有走对象存储分发的 client-mods 才需要登记 -> 用 --only client。
+    """
     found = {}
 
     def add(d: str, side: str) -> None:
@@ -302,8 +306,10 @@ def scan(cfg: dict, repo: str) -> dict:
 
     srv = ((cfg.get("server") or {}).get("sourceModsDir") or "./server-mods")
     cli = ((cfg.get("client") or {}).get("sourceModsDir") or "./client-mods")
-    add(os.path.join(repo, srv), "server")
-    add(os.path.join(repo, cli), "client")
+    if only in ("server", "both"):
+        add(os.path.join(repo, srv), "server")
+    if only in ("client", "both"):
+        add(os.path.join(repo, cli), "client")
     return found
 
 
@@ -313,6 +319,9 @@ def main() -> int:
     ap.add_argument("--config", default="", help="配置文件（默认 <repo>/pack.local.json）")
     ap.add_argument("--out", default="", help="输出文件（默认 <repo>/mods.lock.generated.json）")
     ap.add_argument("--write", action="store_true", help="直接覆盖 mods.lock.json")
+    ap.add_argument("--only", choices=("client", "server", "both"), default="client",
+                    help="登记哪一侧的源目录（默认 client：只有玩家端需要平台来源，"
+                         "服务端走 SSH 直推无需登记；要带上服务端用 --only both）")
     ap.add_argument("--no-cf", action="store_true", help="跳过 CurseForge 反查（默认会查）")
     ap.add_argument("--no-name-search", action="store_true",
                     help="跳过「文件名搜索 + 哈希校验」兜底（默认会做）")
@@ -326,7 +335,7 @@ def main() -> int:
         cfg = json.load(f)
     pack_meta = {"minecraftVersion": "1.21.1", "loader": "neoforge"}
 
-    found = scan(cfg, repo)
+    found = scan(cfg, repo, args.only)
     names = sorted(found)
     if args.limit:
         names = names[:args.limit]
