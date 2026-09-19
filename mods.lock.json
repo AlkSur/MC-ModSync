@@ -8,7 +8,7 @@
     {
       "name": "AlwaysEat-neoforge-1.0.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "AlwaysEat-neoforge-1.0.0.jar",
       "resolvedVersion": "1.0.0+neoforge",
@@ -20,7 +20,7 @@
     {
       "name": "ApothicAttributes-1.21.1-2.9.1",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ApothicAttributes-1.21.1-2.9.1.jar",
       "sha256": "6e3dd73d01c1784f4d1293126e3020470887456cd0d246a4c44a0fc1a244e381",
@@ -42,7 +42,7 @@
     {
       "name": "BrewinAndChewin-neoforge-4.5.0+1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "BrewinAndChewin-neoforge-4.5.0+1.21.1.jar",
       "resolvedVersion": "4.5.0+1.21.1-neoforge",
@@ -78,7 +78,7 @@
     {
       "name": "Controlling-neoforge-1.21.1-19.0.5",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "Controlling-neoforge-1.21.1-19.0.5.jar",
       "resolvedVersion": "19.0.5",
@@ -90,7 +90,7 @@
     {
       "name": "CreateDragonsPlus-1.11.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "CreateDragonsPlus-1.11.4.jar",
       "resolvedVersion": "1.11.4",
@@ -102,7 +102,7 @@
     {
       "name": "CreateFastSchematicCannon-1.4.1-neoforge-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "CreateFastSchematicCannon-1.4.1-neoforge-1.21.1.jar",
       "resolvedVersion": "1.21.1-1.4.1-neoforge",
@@ -112,21 +112,9 @@
       "projectSlug": "create-fast-schematic-cannon"
     },
     {
-      "name": "CustomSkinLoader_Universal-15.0.1.jar-万用皮肤补丁",
-      "source": "modrinth",
-      "side": "server",
-      "versionPin": "latest",
-      "fileName": "CustomSkinLoader_Universal-15.0.1.jar-万用皮肤补丁.jar",
-      "resolvedVersion": "15.0.1-Universal",
-      "downloadUrl": "https://cdn.modrinth.com/data/idMHQ4n2/versions/OLaesh5y/CustomSkinLoader_Universal-15.0.1.jar",
-      "sha256": "026d8b38ea93edccd647f60568193e79801a377b7bd4e916dcfc0d5482b767fc",
-      "size": 218215,
-      "projectSlug": "customskinloader"
-    },
-    {
       "name": "Epic Villages 1.3.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "Epic Villages 1.3.2.jar",
       "resolvedVersion": "1.3.2",
@@ -138,7 +126,7 @@
     {
       "name": "FarmersDelight-1.21.1-1.3.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "FarmersDelight-1.21.1-1.3.2.jar",
       "resolvedVersion": "1.21.1-1.3.2",
@@ -150,7 +138,7 @@
     {
       "name": "HopoBetterRuinedPortals-[1.21.1-1.21.3]-1.4.4b",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "HopoBetterRuinedPortals-[1.21.1-1.21.3]-1.4.4b.jar",
       "resolvedVersion": "1.4.4b",
@@ -174,7 +162,7 @@
     {
       "name": "ImmediatelyFast-NeoForge-1.6.11+1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ImmediatelyFast-NeoForge-1.6.11+1.21.1.jar",
       "resolvedVersion": "1.6.11+1.21.1-neoforge",
@@ -182,18 +170,6 @@
       "sha256": "336df12f099d1a441a3e06850bea86e9c2d0c8bc022d3d9a201870a201562a04",
       "size": 361795,
       "projectSlug": "immediatelyfast"
-    },
-    {
-      "name": "Jade-1.21.1-NeoForge-15.10.5",
-      "source": "modrinth",
-      "side": "server",
-      "versionPin": "latest",
-      "fileName": "Jade-1.21.1-NeoForge-15.10.5.jar",
-      "resolvedVersion": "15.10.5+neoforge",
-      "downloadUrl": "https://cdn.modrinth.com/data/nvQzSEkH/versions/yd8FKCmx/Jade-1.21.1-NeoForge-15.10.5.jar",
-      "sha256": "067bb4b007e1d6f6b79f0afe99c91252aa825472b99a76d33a60d24442f9e92d",
-      "size": 725742,
-      "projectSlug": "jade"
     },
     {
       "name": "Jade-1.21.1-NeoForge-15.10.6",
@@ -210,7 +186,7 @@
     {
       "name": "JadeAddons-1.21.1-NeoForge-6.1.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "JadeAddons-1.21.1-NeoForge-6.1.0.jar",
       "resolvedVersion": "6.1.0+neoforge",
@@ -222,7 +198,7 @@
     {
       "name": "JustEnoughProfessions-neoforge-1.21.1-4.0.5",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "JustEnoughProfessions-neoforge-1.21.1-4.0.5.jar",
       "sha256": "b34d6bb434d507874a6ebe49d40169c26f7cad8f51c9ffea615eedb153746696",
@@ -232,7 +208,7 @@
     {
       "name": "MaidUseHandCrank_1.6.2-neoforge_21.1.219-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "MaidUseHandCrank_1.6.2-neoforge_21.1.219-1.21.1.jar",
       "resolvedVersion": "1.6.2",
@@ -256,7 +232,7 @@
     {
       "name": "MyNethersDelight-1.21.1-1.10.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "MyNethersDelight-1.21.1-1.10.2.jar",
       "resolvedVersion": "1.10.2",
@@ -268,7 +244,7 @@
     {
       "name": "NaturesCompass-1.21.1-3.4.0-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "NaturesCompass-1.21.1-3.4.0-neoforge.jar",
       "resolvedVersion": "1.21.1-3.4.0-neoforge",
@@ -280,7 +256,7 @@
     {
       "name": "Patchouli-1.21.1-93-NEOFORGE",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "Patchouli-1.21.1-93-NEOFORGE.jar",
       "resolvedVersion": "1.21.1-93-neoforge",
@@ -292,7 +268,7 @@
     {
       "name": "Placebo-1.21.1-9.9.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "Placebo-1.21.1-9.9.1.jar",
       "resolvedVersion": "9.9.1",
@@ -304,7 +280,7 @@
     {
       "name": "Retraining-neoforge-1.21-2.0.0",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "Retraining-neoforge-1.21-2.0.0.jar",
       "sha256": "5af5827a3035daab71b7a534face245c64237e5521c6c8125628ca116fe8aa26",
@@ -314,7 +290,7 @@
     {
       "name": "Searchables-neoforge-1.21.1-1.0.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "Searchables-neoforge-1.21.1-1.0.2.jar",
       "resolvedVersion": "1.0.2",
@@ -326,7 +302,7 @@
     {
       "name": "SimpleBackups-1.21-4.0.21",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "SimpleBackups-1.21-4.0.21.jar",
       "resolvedVersion": "1.21-4.0.21",
@@ -338,7 +314,7 @@
     {
       "name": "StructureCompass-1.21.1-4.2.1",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "StructureCompass-1.21.1-4.2.1.jar",
       "sha256": "599b0330a2daa26892f2c9db8240911a06359f735a441a75f1dd6976957f6001",
@@ -348,7 +324,7 @@
     {
       "name": "TerraBlender-neoforge-1.21.1-4.1.0.8",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "TerraBlender-neoforge-1.21.1-4.1.0.8.jar",
       "resolvedVersion": "4.1.0.8",
@@ -360,7 +336,7 @@
     {
       "name": "UsefulSlime-neoforge-1.21-1.12.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "UsefulSlime-neoforge-1.21-1.12.1.jar",
       "resolvedVersion": "1.12.1",
@@ -380,6 +356,18 @@
       "sha256": "21724b7f676696f8d3716142406440adba9e63fc6519eeadc2b7ee8aae64c760",
       "size": 1979027,
       "projectSlug": "3dskinlayers"
+    },
+    {
+      "name": "[万用皮肤补丁] CustomSkinLoader_Universal-15.0.1",
+      "source": "modrinth",
+      "side": "client",
+      "versionPin": "latest",
+      "fileName": "[万用皮肤补丁] CustomSkinLoader_Universal-15.0.1.jar",
+      "resolvedVersion": "15.0.1-Universal",
+      "downloadUrl": "https://cdn.modrinth.com/data/idMHQ4n2/versions/OLaesh5y/CustomSkinLoader_Universal-15.0.1.jar",
+      "sha256": "026d8b38ea93edccd647f60568193e79801a377b7bd4e916dcfc0d5482b767fc",
+      "size": 218215,
+      "projectSlug": "customskinloader"
     },
     {
       "name": "[现代化 UI] ModernUI-NeoForge-1.21.1-3.13.0.1-universal",
@@ -406,7 +394,7 @@
     {
       "name": "aeroworks-1.4.1",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "aeroworks-1.4.1.jar",
       "sha256": "939bacad6b5854b93586bbe5c88359f6a829435c6d03c1b5e5ff8e01c6b1c9db",
@@ -418,7 +406,7 @@
     {
       "name": "alloy_smelter-neoforge-1.21.1-1.1.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "alloy_smelter-neoforge-1.21.1-1.1.2.jar",
       "resolvedVersion": "1.21.1-1.1.2",
@@ -430,7 +418,7 @@
     {
       "name": "appleskin-neoforge-mc1.21-3.0.9",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "appleskin-neoforge-mc1.21-3.0.9.jar",
       "resolvedVersion": "3.0.9+mc1.21",
@@ -442,7 +430,7 @@
     {
       "name": "architectury-13.0.8-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "architectury-13.0.8-neoforge.jar",
       "resolvedVersion": "13.0.8+neoforge",
@@ -454,7 +442,7 @@
     {
       "name": "atlas_api-1.21.1-1.2.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "atlas_api-1.21.1-1.2.0.jar",
       "resolvedVersion": "1.21.1-1.2.0",
@@ -466,7 +454,7 @@
     {
       "name": "attributefix-neoforge-1.21.1-21.1.3",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "attributefix-neoforge-1.21.1-21.1.3.jar",
       "resolvedVersion": "21.1.3",
@@ -478,7 +466,7 @@
     {
       "name": "balm-neoforge-1.21.1-21.0.56",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "balm-neoforge-1.21.1-21.0.56.jar",
       "sha256": "670ed64e73cacb646b21eaa6e2d2028f95c498d0cf1ae5cffcf7035d0b2fb32e",
@@ -488,7 +476,7 @@
     {
       "name": "barbequesdelight-1.3.0",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "barbequesdelight-1.3.0.jar",
       "sha256": "fce559ad8c0964cf4e3bfd9fc03fc2ab87bebc31e446968c87d3876a86f23f7e",
@@ -498,7 +486,7 @@
     {
       "name": "biomespy-neoforge-1.21.1-1.3.3",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "biomespy-neoforge-1.21.1-1.3.3.jar",
       "resolvedVersion": "1.3.3",
@@ -510,7 +498,7 @@
     {
       "name": "bits_n_bobs-0.0.44",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "bits_n_bobs-0.0.44.jar",
       "resolvedVersion": "0.0.44",
@@ -522,7 +510,7 @@
     {
       "name": "bookshelf-neoforge-1.21.1-21.1.81",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "bookshelf-neoforge-1.21.1-21.1.81.jar",
       "resolvedVersion": "21.1.81",
@@ -534,7 +522,7 @@
     {
       "name": "byepregen-1.0.10.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "byepregen-1.0.10.2.jar",
       "resolvedVersion": "1.0.10.2",
@@ -546,7 +534,7 @@
     {
       "name": "c2me-neoforge-mc1.21.1-0.4.0-alpha.0.116",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "c2me-neoforge-mc1.21.1-0.4.0-alpha.0.116.jar",
       "resolvedVersion": "0.4.0-alpha.0.116+1.21.1",
@@ -558,7 +546,7 @@
     {
       "name": "c6c-lite-1.0.0.0",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "c6c-lite-1.0.0.0.jar",
       "sha256": "7cd301fa485767c84f38e8fcb52bee9acebb3f23fb01e3116e6be25caa8c489b",
@@ -568,7 +556,7 @@
     {
       "name": "carryon-neoforge-1.21.1-2.2.2.11",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "carryon-neoforge-1.21.1-2.2.2.11.jar",
       "resolvedVersion": "2.2.2",
@@ -580,7 +568,7 @@
     {
       "name": "cc-tweaked-1.21.1-forge-1.120.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "cc-tweaked-1.21.1-forge-1.120.2.jar",
       "resolvedVersion": "1.120.2",
@@ -592,7 +580,7 @@
     {
       "name": "cc_sable-neoforge-1.3.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "cc_sable-neoforge-1.3.4.jar",
       "resolvedVersion": "1.3.4",
@@ -604,7 +592,7 @@
     {
       "name": "chefsdelight-1.0.5-neoforge-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "chefsdelight-1.0.5-neoforge-1.21.1.jar",
       "resolvedVersion": "1.0.5",
@@ -616,7 +604,7 @@
     {
       "name": "clientsort-neoforge-2.2.2+1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "clientsort-neoforge-2.2.2+1.21.1.jar",
       "resolvedVersion": "2.2.2+1.21.1",
@@ -628,7 +616,7 @@
     {
       "name": "cloth-config-15.0.140-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "cloth-config-15.0.140-neoforge.jar",
       "resolvedVersion": "15.0.140+neoforge",
@@ -640,7 +628,7 @@
     {
       "name": "cmpackagecouriers-neoforge-2.3.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "cmpackagecouriers-neoforge-2.3.0.jar",
       "resolvedVersion": "2.3.0",
@@ -686,7 +674,7 @@
     {
       "name": "configured-neoforge-1.21.1-2.6.3",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "configured-neoforge-1.21.1-2.6.3.jar",
       "sha256": "421ffd2604b5487cbdb284d1eb5d1cb8a7d28f3ff84d5b4bda25e0a579282a15",
@@ -696,7 +684,7 @@
     {
       "name": "connector-2.0.0-beta.16+1.21.1-full",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "connector-2.0.0-beta.16+1.21.1-full.jar",
       "sha256": "0b2e16d4a3cb4d8a60001c5711738e747dcb1d682da5ca4106b9ffef595f41e8",
@@ -706,7 +694,7 @@
     {
       "name": "constructionwand-kots-1.21.1-2.16.11",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "constructionwand-kots-1.21.1-2.16.11.jar",
       "sha256": "3b3591b1901064b9fb93b3cc61c9cb52588b1f8fbe3867ea08d71a7f88b31422",
@@ -716,7 +704,7 @@
     {
       "name": "copycats-3.0.4+mc.1.21.1-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "copycats-3.0.4+mc.1.21.1-neoforge.jar",
       "resolvedVersion": "3.0.4+mc.1.21.1-neoforge",
@@ -728,7 +716,7 @@
     {
       "name": "cratedelight-26.07.01-1.21-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "cratedelight-26.07.01-1.21-neoforge.jar",
       "resolvedVersion": "26.07.01-1.21-neoforge",
@@ -740,7 +728,7 @@
     {
       "name": "create-1.21.1-6.0.10",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create-1.21.1-6.0.10.jar",
       "resolvedVersion": "6.0.10+mc1.21.1",
@@ -752,7 +740,7 @@
     {
       "name": "create-aeronautics-bundled-1.21.1-1.3.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create-aeronautics-bundled-1.21.1-1.3.0.jar",
       "resolvedVersion": "1.3.0+mc1.21.1",
@@ -764,7 +752,7 @@
     {
       "name": "create-central-kitchen-2.5.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create-central-kitchen-2.5.0.jar",
       "resolvedVersion": "2.5.0",
@@ -776,7 +764,7 @@
     {
       "name": "create-enchantment-industry-2.4.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create-enchantment-industry-2.4.2.jar",
       "resolvedVersion": "2.4.2",
@@ -788,7 +776,7 @@
     {
       "name": "create-integrated-farming-1.2.6",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create-integrated-farming-1.2.6.jar",
       "resolvedVersion": "1.2.6",
@@ -800,7 +788,7 @@
     {
       "name": "create_aeronautics_automated_logistics-0.6.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_aeronautics_automated_logistics-0.6.0.jar",
       "resolvedVersion": "0.6.0",
@@ -812,7 +800,7 @@
     {
       "name": "create_aeronautics_toolgun-0.3.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_aeronautics_toolgun-0.3.2.jar",
       "resolvedVersion": "0.3.2",
@@ -824,7 +812,7 @@
     {
       "name": "create_aeronautics_transmission_linkage-0.2.5",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_aeronautics_transmission_linkage-0.2.5.jar",
       "resolvedVersion": "0.2.5",
@@ -836,7 +824,7 @@
     {
       "name": "create_compressed-2.2.0-neoforge-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_compressed-2.2.0-neoforge-1.21.1.jar",
       "resolvedVersion": "2.2.0",
@@ -848,7 +836,7 @@
     {
       "name": "create_connected-1.3.2-mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_connected-1.3.2-mc1.21.1.jar",
       "resolvedVersion": "1.3.2-mc1.21.1",
@@ -860,7 +848,7 @@
     {
       "name": "create_easy_structures-0.2a-neoforge-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_easy_structures-0.2a-neoforge-1.21.1.jar",
       "resolvedVersion": "0.2a",
@@ -872,7 +860,7 @@
     {
       "name": "create_ez_stock_ticker-1.0.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_ez_stock_ticker-1.0.4.jar",
       "resolvedVersion": "1.0.4",
@@ -884,7 +872,7 @@
     {
       "name": "create_flight_control-neoforge-0.7.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_flight_control-neoforge-0.7.2.jar",
       "resolvedVersion": "0.7.2",
@@ -896,7 +884,7 @@
     {
       "name": "create_hypertube-0.5.0-ALPHA-NEOFORGE",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_hypertube-0.5.0-ALPHA-NEOFORGE.jar",
       "resolvedVersion": "0.5.0-ALPHA",
@@ -908,7 +896,7 @@
     {
       "name": "create_mechanical_spawner-1.21.1-1.3.1-6.0.10",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_mechanical_spawner-1.21.1-1.3.1-6.0.10.jar",
       "resolvedVersion": "1.21.1-1.3.1-6.0.10",
@@ -920,7 +908,7 @@
     {
       "name": "create_pattern_schematics-2.0.10",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_pattern_schematics-2.0.10.jar",
       "resolvedVersion": "2.0.10",
@@ -932,7 +920,7 @@
     {
       "name": "create_power_loader-2.0.5-mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_power_loader-2.0.5-mc1.21.1.jar",
       "resolvedVersion": "2.0.5-mc1.21.1",
@@ -956,7 +944,7 @@
     {
       "name": "create_tweaked_controllers-1.21.1-1.2.7",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "create_tweaked_controllers-1.21.1-1.2.7.jar",
       "resolvedVersion": "1.21.1-1.2.7",
@@ -968,7 +956,7 @@
     {
       "name": "createadditionallogistics-1.21.1-1.4.5",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createadditionallogistics-1.21.1-1.4.5.jar",
       "resolvedVersion": "1.4.5",
@@ -980,7 +968,7 @@
     {
       "name": "createbetterfps-1.21.1-1.1.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createbetterfps-1.21.1-1.1.4.jar",
       "resolvedVersion": "1.1.4",
@@ -992,7 +980,7 @@
     {
       "name": "createbigcannons-5.11.7+mc.1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createbigcannons-5.11.7+mc.1.21.1.jar",
       "resolvedVersion": "5.11.7",
@@ -1004,7 +992,7 @@
     {
       "name": "createcobblestone-1.4.12+neoforge-1.21.1-144",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createcobblestone-1.4.12+neoforge-1.21.1-144.jar",
       "resolvedVersion": "1.4.12+neoforge-1.21.1-144",
@@ -1016,7 +1004,7 @@
     {
       "name": "createdeco-2.1.3",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createdeco-2.1.3.jar",
       "resolvedVersion": "2.1.3",
@@ -1028,7 +1016,7 @@
     {
       "name": "createdieselgenerators-1.21.1-1.3.15",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createdieselgenerators-1.21.1-1.3.15.jar",
       "resolvedVersion": "1.21.1-1.3.15",
@@ -1040,7 +1028,7 @@
     {
       "name": "creategearsandtavern-1.1.7",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "creategearsandtavern-1.1.7.jar",
       "resolvedVersion": "1.1.7",
@@ -1052,7 +1040,7 @@
     {
       "name": "createliquidfuel-2.1.1-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createliquidfuel-2.1.1-1.21.1.jar",
       "resolvedVersion": "2.1.1-1.21.1",
@@ -1064,7 +1052,7 @@
     {
       "name": "createoreexcavation-1.21-1.6.8",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createoreexcavation-1.21-1.6.8.jar",
       "resolvedVersion": "1.21.1-1.6.8",
@@ -1076,7 +1064,7 @@
     {
       "name": "createprism-1.2.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createprism-1.2.2.jar",
       "resolvedVersion": "1.2.2",
@@ -1088,7 +1076,7 @@
     {
       "name": "createpropulsion-1.1.5",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createpropulsion-1.1.5.jar",
       "resolvedVersion": "1.1.5",
@@ -1100,7 +1088,7 @@
     {
       "name": "createrailgrinding-1.2.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createrailgrinding-1.2.2.jar",
       "resolvedVersion": "1.2.2+mc1.21.1",
@@ -1112,7 +1100,7 @@
     {
       "name": "createredstonelinkgui-1.21.1-1.3.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createredstonelinkgui-1.21.1-1.3.0.jar",
       "resolvedVersion": "1.21.1-1.3.0",
@@ -1124,7 +1112,7 @@
     {
       "name": "createultimine-1.21.1-neoforge-1.3.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "createultimine-1.21.1-neoforge-1.3.2.jar",
       "resolvedVersion": "1.21.1-neoforge-1.3.2",
@@ -1136,7 +1124,7 @@
     {
       "name": "curios-neoforge-9.5.1+1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "curios-neoforge-9.5.1+1.21.1.jar",
       "resolvedVersion": "9.5.1+1.21.1",
@@ -1148,7 +1136,7 @@
     {
       "name": "deployer-0.1.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "deployer-0.1.2.jar",
       "resolvedVersion": "0.1.2",
@@ -1160,7 +1148,7 @@
     {
       "name": "disconnect-packet-fix-neoforge-2.0.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "disconnect-packet-fix-neoforge-2.0.1.jar",
       "resolvedVersion": "2.0.1-neoforge",
@@ -1172,7 +1160,7 @@
     {
       "name": "display_case-neoforge-1.21.1-1.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "display_case-neoforge-1.21.1-1.2.jar",
       "resolvedVersion": "1.2",
@@ -1184,7 +1172,7 @@
     {
       "name": "displaydelight-1.7.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "displaydelight-1.7.0.jar",
       "resolvedVersion": "1.7.0",
@@ -1208,7 +1196,7 @@
     {
       "name": "drivebysable-r1.2.2-beta",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "drivebysable-r1.2.2-beta.jar",
       "resolvedVersion": "r1.2.2-beta",
@@ -1220,7 +1208,7 @@
     {
       "name": "efficient_hashing-neoforge-1.0.0+1.21.1-mod",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "efficient_hashing-neoforge-1.0.0+1.21.1-mod.jar",
       "resolvedVersion": "1.0.0",
@@ -1232,7 +1220,7 @@
     {
       "name": "enchdesc-neoforge-1.21.1-21.1.9",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "enchdesc-neoforge-1.21.1-21.1.9.jar",
       "resolvedVersion": "21.1.9",
@@ -1244,7 +1232,7 @@
     {
       "name": "ends_delight-2.6.1+neoforge.1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ends_delight-2.6.1+neoforge.1.21.1.jar",
       "resolvedVersion": "2.6.1+neoforge.1.21.1",
@@ -1256,7 +1244,7 @@
     {
       "name": "escalated-1.3.1-mc.1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "escalated-1.3.1-mc.1.21.1.jar",
       "resolvedVersion": "1.3.1",
@@ -1268,7 +1256,7 @@
     {
       "name": "exposure-neoforge-1.21.1-1.9.18",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "exposure-neoforge-1.21.1-1.9.18.jar",
       "resolvedVersion": "1.9.18",
@@ -1280,7 +1268,7 @@
     {
       "name": "extra_gauges-2.1.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "extra_gauges-2.1.2.jar",
       "resolvedVersion": "2.1.2",
@@ -1292,7 +1280,7 @@
     {
       "name": "fastleafdecay-35",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "fastleafdecay-35.jar",
       "sha256": "0b90f259caef64c3aa09d05427859990a51adec072540a9c598370b86c966a98",
@@ -1302,7 +1290,7 @@
     {
       "name": "fastrecipesearch-1.21.1-26.2-neoforge",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "fastrecipesearch-1.21.1-26.2-neoforge.jar",
       "sha256": "e5944b8159ea7ae45e01c0d3fcbd6f75154b75336a35f01d4ac52f9b22d6ca81",
@@ -1312,7 +1300,7 @@
     {
       "name": "fasttag-1.21.1-26.1-neoforge",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "fasttag-1.21.1-26.1-neoforge.jar",
       "sha256": "25c5ccb26f7666441a0d60b33ab88a97bfc7d0c5d858d951774308f0d44f706f",
@@ -1322,7 +1310,7 @@
     {
       "name": "ferritecore-7.0.3-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ferritecore-7.0.3-neoforge.jar",
       "resolvedVersion": "7.0.3-neoforge",
@@ -1334,7 +1322,7 @@
     {
       "name": "flatbedrock-neoforge-87.0.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "flatbedrock-neoforge-87.0.0.jar",
       "resolvedVersion": "87.0.0",
@@ -1358,7 +1346,7 @@
     {
       "name": "fluidlogistics-1.2.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "fluidlogistics-1.2.0.jar",
       "resolvedVersion": "1.2.0",
@@ -1370,7 +1358,7 @@
     {
       "name": "forbidden-magic-neoforge-0.574-1.21.1-port.0.1.0-20711",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "forbidden-magic-neoforge-0.574-1.21.1-port.0.1.0-20711.jar",
       "sha256": "95b1aac8c547de24208084f6a041e920146ec09f42480cc1c83723cca25d384b",
@@ -1380,7 +1368,7 @@
     {
       "name": "forgified-fabric-api-0.116.15+2.3.1+1.21.1",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "forgified-fabric-api-0.116.15+2.3.1+1.21.1.jar",
       "sha256": "330ce0ea8730647f9646d7b64caccbddcbdfbca30abd68fa48e4d9a4b4f085ff",
@@ -1390,7 +1378,7 @@
     {
       "name": "framework-neoforge-1.21.1-0.13.11",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "framework-neoforge-1.21.1-0.13.11.jar",
       "sha256": "429ea90a162d7c25c1463ee60979e4d7b1ddb525d9384a3a2a2f45d70bda03f5",
@@ -1400,7 +1388,7 @@
     {
       "name": "frequency-1.21.1-neoforge-0.2.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "frequency-1.21.1-neoforge-0.2.0.jar",
       "resolvedVersion": "0.2.0",
@@ -1412,7 +1400,7 @@
     {
       "name": "ftb-library-neoforge-2101.1.32",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "ftb-library-neoforge-2101.1.32.jar",
       "sha256": "6308e71fec7095f68328020a63121a966c8ef89bd3528e459c528037e3484354",
@@ -1422,7 +1410,7 @@
     {
       "name": "ftb-quests-neoforge-2101.1.26",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "ftb-quests-neoforge-2101.1.26.jar",
       "sha256": "f13b18d1491fdca48e62a6b82a84ee9378fc34f504fc215b274e4e0798d846e3",
@@ -1432,7 +1420,7 @@
     {
       "name": "ftb-teams-neoforge-2101.1.10",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "ftb-teams-neoforge-2101.1.10.jar",
       "sha256": "a656f2aa0e11a933aab3ba697690aa0eb2041f65e6c5daa448897ee0a6d37a6c",
@@ -1442,7 +1430,7 @@
     {
       "name": "ftb-ultimine-neoforge-2101.1.14",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "ftb-ultimine-neoforge-2101.1.14.jar",
       "sha256": "d09616af192a0df096a4f0c082fb6495994210237811ba23cb022b849931c970",
@@ -1452,7 +1440,7 @@
     {
       "name": "ftb-xmod-compat-neoforge-21.1.8",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ftb-xmod-compat-neoforge-21.1.8.jar",
       "sha256": "7e04b6d10e8eb6bac55f023d3d88ac3e8e146e57c3bb912462155ad1e49b3ca1",
@@ -1464,7 +1452,7 @@
     {
       "name": "fxntstorage-1.3.2+mc-1.21.1-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "fxntstorage-1.3.2+mc-1.21.1-neoforge.jar",
       "resolvedVersion": "1.3.2",
@@ -1476,7 +1464,7 @@
     {
       "name": "fzzy_config-0.7.6+1.21+neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "fzzy_config-0.7.6+1.21+neoforge.jar",
       "resolvedVersion": "0.7.6+1.21+neoforge",
@@ -1488,7 +1476,7 @@
     {
       "name": "geckolib-neoforge-1.21.1-4.9.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "geckolib-neoforge-1.21.1-4.9.2.jar",
       "resolvedVersion": "4.9.2",
@@ -1500,7 +1488,7 @@
     {
       "name": "horseman-neoforge-1.21.1-1.5.9",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "horseman-neoforge-1.21.1-1.5.9.jar",
       "resolvedVersion": "1.5.9",
@@ -1524,7 +1512,7 @@
     {
       "name": "irons_jewelry-1.21.1-1.6.0",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "irons_jewelry-1.21.1-1.6.0.jar",
       "sha256": "6b3578dff5cd2389b397ea66b9f40fef7587e36b459ca8e5f8c715c7befd2388",
@@ -1536,7 +1524,7 @@
     {
       "name": "jecharacters-1.21.1-neoforge-4.5.27",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "jecharacters-1.21.1-neoforge-4.5.27.jar",
       "resolvedVersion": "4.5.27",
@@ -1548,7 +1536,7 @@
     {
       "name": "jei-1.21.1-neoforge-19.39.0.368",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "jei-1.21.1-neoforge-19.39.0.368.jar",
       "resolvedVersion": "19.39.0.368",
@@ -1560,7 +1548,7 @@
     {
       "name": "kaleidoscope_compat-2.9.7-neoforge+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "kaleidoscope_compat-2.9.7-neoforge+mc1.21.1.jar",
       "resolvedVersion": "2.9.7-neoforge+mc1.21.1",
@@ -1572,7 +1560,7 @@
     {
       "name": "kaleidoscopecookery-1.4.1-neoforge+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "kaleidoscopecookery-1.4.1-neoforge+mc1.21.1.jar",
       "resolvedVersion": "1.4.1-neoforge+mc1.21.1",
@@ -1584,7 +1572,7 @@
     {
       "name": "kaleidoscopedoll-1.4.1-neoforge+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "kaleidoscopedoll-1.4.1-neoforge+mc1.21.1.jar",
       "resolvedVersion": "1.4.1-neoforge+mc1.21.1",
@@ -1596,7 +1584,7 @@
     {
       "name": "kaleidoscopetavern-1.2.0-neoforge+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "kaleidoscopetavern-1.2.0-neoforge+mc1.21.1.jar",
       "resolvedVersion": "1.2.0-neoforge+mc1.21.1",
@@ -1608,7 +1596,7 @@
     {
       "name": "kotlinforforge-5.11.0-all",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "kotlinforforge-5.11.0-all.jar",
       "sha256": "89d2ccd9d2ca2996ca3ee57b27165893f4bc4b8431be89461f8b2f8fe6162ac1",
@@ -1618,7 +1606,7 @@
     {
       "name": "krypton_fnp-neoforge-1.21.1-0.2.28.1-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "krypton_fnp-neoforge-1.21.1-0.2.28.1-1.21.1.jar",
       "resolvedVersion": "0.2.28.1-1.21.1",
@@ -1630,7 +1618,7 @@
     {
       "name": "kubejs-neoforge-2101.7.2-build.368",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "kubejs-neoforge-2101.7.2-build.368.jar",
       "sha256": "28867299e7a9f02cfd74e34745fdbbb073fe4887fddbc98fd6c1ed2e87b01482",
@@ -1640,7 +1628,7 @@
     {
       "name": "kubejstweaks-1.0.6",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "kubejstweaks-1.0.6.jar",
       "sha256": "2a444fb6e0931f30acc4d5880b164cc7bc8fe24801973a75bde384996c827e8f",
@@ -1650,7 +1638,7 @@
     {
       "name": "l2library-3.0.7",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "l2library-3.0.7.jar",
       "sha256": "ca564f549299a1536d47d15ac1faa6dd2600ca76ac88ad20dc537dffe0174fed",
@@ -1662,7 +1650,7 @@
     {
       "name": "ldlib2-neoforge-1.21.1-2.2.24-all",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ldlib2-neoforge-1.21.1-2.2.24-all.jar",
       "resolvedVersion": "mc1.21.1-2.2.24-neoforge",
@@ -1674,7 +1662,7 @@
     {
       "name": "lithium-neoforge-0.15.4+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "lithium-neoforge-0.15.4+mc1.21.1.jar",
       "resolvedVersion": "mc1.21.1-0.15.4-neoforge",
@@ -1686,7 +1674,7 @@
     {
       "name": "lmft-1.1.1+1.21.9-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "lmft-1.1.1+1.21.9-neoforge.jar",
       "resolvedVersion": "1.1.1+1.21.9",
@@ -1698,7 +1686,7 @@
     {
       "name": "lootjs-neoforge-1.21.1-3.7.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "lootjs-neoforge-1.21.1-3.7.0.jar",
       "resolvedVersion": "1.21.1-3.7.0+neoforge",
@@ -1710,7 +1698,7 @@
     {
       "name": "lootr-neoforge-1.21.1-1.11.37.121",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "lootr-neoforge-1.21.1-1.11.37.121.jar",
       "resolvedVersion": "1.21.1-1.11.37.121",
@@ -1722,7 +1710,7 @@
     {
       "name": "maidsoulkitchen-1.21.1-beta-v0.1.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "maidsoulkitchen-1.21.1-beta-v0.1.4.jar",
       "resolvedVersion": "0.1.4",
@@ -1734,7 +1722,7 @@
     {
       "name": "maxhealthfix-neoforge-1.21.1-21.1.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "maxhealthfix-neoforge-1.21.1-21.1.4.jar",
       "resolvedVersion": "21.1.4",
@@ -1746,7 +1734,7 @@
     {
       "name": "mechanicals-1.21.1-1.1.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "mechanicals-1.21.1-1.1.4.jar",
       "resolvedVersion": "1.21.1-1.1.4",
@@ -1758,7 +1746,7 @@
     {
       "name": "medieval_buildings_end_edition-1.21.1-1.0.4-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "medieval_buildings_end_edition-1.21.1-1.0.4-neoforge.jar",
       "resolvedVersion": "1.0.4",
@@ -1770,7 +1758,7 @@
     {
       "name": "modernfix-neoforge-5.27.20+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "modernfix-neoforge-5.27.20+mc1.21.1.jar",
       "resolvedVersion": "5.27.20+mc1.21.1",
@@ -1782,7 +1770,7 @@
     {
       "name": "modulargolems-3.1.42",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "modulargolems-3.1.42.jar",
       "sha256": "77b721e71b9c3bd0e3928ed690468d000994bc775450454582d090f34abff34b",
@@ -1794,7 +1782,7 @@
     {
       "name": "neo-voxy-0.4.7-mc1.21.1-neoforge-integrations",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "neo-voxy-0.4.7-mc1.21.1-neoforge-integrations.jar",
       "sha256": "ea0886a2d31d70a1ec88e3a7077ae4a55f2f4a5aaa8c7d636f3c118c7fcc9660",
@@ -1804,7 +1792,7 @@
     {
       "name": "netmusic-1.5.1-neoforge+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "netmusic-1.5.1-neoforge+mc1.21.1.jar",
       "resolvedVersion": "1.5.1-neoforge+mc1.21.1",
@@ -1816,7 +1804,7 @@
     {
       "name": "packetfixer-3.3.1-1.20.5-1.21.X-merged",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "packetfixer-3.3.1-1.20.5-1.21.X-merged.jar",
       "resolvedVersion": "3.3.1",
@@ -1828,7 +1816,7 @@
     {
       "name": "polymorph-neoforge-1.1.0+1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "polymorph-neoforge-1.1.0+1.21.1.jar",
       "resolvedVersion": "1.1.0+1.21.1",
@@ -1840,7 +1828,7 @@
     {
       "name": "powerful_dummy-21-0.0.9-hotfix",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "powerful_dummy-21-0.0.9-hotfix.jar",
       "sha256": "5e273464b3bce2a177aaebefe2600b64f2e04846373451db38ed6ca90b2bca6f",
@@ -1850,7 +1838,7 @@
     {
       "name": "prickle-neoforge-1.21.1-21.1.11",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "prickle-neoforge-1.21.1-21.1.11.jar",
       "resolvedVersion": "21.1.11",
@@ -1862,7 +1850,7 @@
     {
       "name": "railways-0.2.1+neoforge-mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "railways-0.2.1+neoforge-mc1.21.1.jar",
       "resolvedVersion": "0.2.1+neoforge-mc1.21.1",
@@ -1874,7 +1862,7 @@
     {
       "name": "reddensstonelantern-1.0.4-neoforge-1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "reddensstonelantern-1.0.4-neoforge-1.21.1.jar",
       "resolvedVersion": "1.0.4",
@@ -1886,7 +1874,7 @@
     {
       "name": "resourcefulconfig-neoforge-1.21-3.0.11",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "resourcefulconfig-neoforge-1.21-3.0.11.jar",
       "resolvedVersion": "3.0.11",
@@ -1898,7 +1886,7 @@
     {
       "name": "resourcefullib-neoforge-1.21-3.0.12",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "resourcefullib-neoforge-1.21-3.0.12.jar",
       "resolvedVersion": "3.0.12",
@@ -1910,7 +1898,7 @@
     {
       "name": "rhino-2101.2.7-build.85",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "rhino-2101.2.7-build.85.jar",
       "sha256": "95df92ce578b2504cb16d8c9fc285303bf062eb15452246a18e57b7cf091c19a",
@@ -1920,7 +1908,7 @@
     {
       "name": "ritchiesprojectilelib-2.1.2-mc.1.21.1-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "ritchiesprojectilelib-2.1.2-mc.1.21.1-neoforge.jar",
       "resolvedVersion": "2.1.2",
@@ -1932,7 +1920,7 @@
     {
       "name": "sable-neoforge-1.21.1-2.0.3",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "sable-neoforge-1.21.1-2.0.3.jar",
       "resolvedVersion": "2.0.3+mc1.21.1",
@@ -1944,7 +1932,7 @@
     {
       "name": "sable-photomancy-1.0.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "sable-photomancy-1.0.0.jar",
       "resolvedVersion": "1.0.0",
@@ -1968,7 +1956,7 @@
     {
       "name": "serverwarashi-1.21.1-2.1.1.2",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "serverwarashi-1.21.1-2.1.1.2.jar",
       "sha256": "1d242785c5506324de8d79d3ec3a9624d2dff11bb50c87b16abaab4593cbfd15",
@@ -1978,7 +1966,7 @@
     {
       "name": "showcaseitem-1.21.1-1.1.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "showcaseitem-1.21.1-1.1.0.jar",
       "resolvedVersion": "1.21.1-1.1.0",
@@ -1990,7 +1978,7 @@
     {
       "name": "simpletomb-1.21.1-1.4.4",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "simpletomb-1.21.1-1.4.4.jar",
       "sha256": "bb9f1ccf10d88648534ac6fa8d688c2b56713b2bc5e3475b7a5f3b527b7e1c76",
@@ -2000,7 +1988,7 @@
     {
       "name": "simulated_gauges-1.1.0",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "simulated_gauges-1.1.0.jar",
       "resolvedVersion": "1.1.0",
@@ -2008,18 +1996,6 @@
       "sha256": "20295fda5d87bcbb32a8a566570383d5f1e68464953f151ac060e0b6f8907006",
       "size": 828225,
       "projectSlug": "simulated-gauges"
-    },
-    {
-      "name": "simulatedcoasters-0.1.4",
-      "source": "modrinth",
-      "side": "server",
-      "versionPin": "latest",
-      "fileName": "simulatedcoasters-0.1.4.jar",
-      "resolvedVersion": "0.1.4",
-      "downloadUrl": "https://cdn.modrinth.com/data/W1ZUfWdr/versions/RIBBfVi3/simulatedcoasters-0.1.4.jar",
-      "sha256": "0c1c1678c3d8dd6025f81d5a09c8415fa0ae8aef939183751e8589aed6257db0",
-      "size": 1877867,
-      "projectSlug": "create-coasters-simulated"
     },
     {
       "name": "simulatedcoasters-0.1.5",
@@ -2048,7 +2024,7 @@
     {
       "name": "smrb-1.0.0",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "smrb-1.0.0.jar",
       "sha256": "91642737aad509ba39d66ed62eec56e7df47d76853913e4c862dca4421cf0dc1",
@@ -2058,7 +2034,7 @@
     {
       "name": "smsn-neoforge-1.4.3-1.21.1",
       "source": "curseforge",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "smsn-neoforge-1.4.3-1.21.1.jar",
       "sha256": "52af12f26e469759aa073a1d9d0badab4ae54b2994441f914d29fdb04e3fe4e6",
@@ -2080,7 +2056,7 @@
     {
       "name": "sootychimneys-neoforge-1.3.5",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "sootychimneys-neoforge-1.3.5.jar",
       "resolvedVersion": "1.3.5",
@@ -2092,7 +2068,7 @@
     {
       "name": "spark-1.10.124-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "spark-1.10.124-neoforge.jar",
       "resolvedVersion": "1.10.124-neoforge-1.21.1",
@@ -2104,7 +2080,7 @@
     {
       "name": "structure_layout_optimizer-neoforge-1.0.12",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "structure_layout_optimizer-neoforge-1.0.12.jar",
       "resolvedVersion": "1.0.12+1.21.1-neoforge",
@@ -2116,7 +2092,7 @@
     {
       "name": "tainted-magic-neoforge-8.1.1-1.21.1-port.0.1.0-20711",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "tainted-magic-neoforge-8.1.1-1.21.1-port.0.1.0-20711.jar",
       "sha256": "ca0e19a7f2c465368db0df43448fca36f88df3d34961bea02f6acaca233ba44a",
@@ -2126,7 +2102,7 @@
     {
       "name": "takesapillage-neoforge-1.0.12+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "takesapillage-neoforge-1.0.12+mc1.21.1.jar",
       "resolvedVersion": "neoforge-1.0.12+mc1.21.1",
@@ -2138,7 +2114,7 @@
     {
       "name": "thaumcraft-neoforge-4.2.3.5-1.21.1-port.0.1.0-20711",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "thaumcraft-neoforge-4.2.3.5-1.21.1-port.0.1.0-20711.jar",
       "sha256": "d549f1d27b597b05bc2ddef99b3889fe1bd29072318d4ca5013be0c1da4cc5ec",
@@ -2148,7 +2124,7 @@
     {
       "name": "thaumic-tinkerer-neoforge-2.5-1.21.1-port.0.1.0-20711",
       "source": "manual",
-      "side": "both",
+      "side": "client",
       "versionPin": "manual",
       "fileName": "thaumic-tinkerer-neoforge-2.5-1.21.1-port.0.1.0-20711.jar",
       "sha256": "a20900a768b6605307046ebbd22fce2873a348ca71a3513a4ab4cfd4c29db95e",
@@ -2158,7 +2134,7 @@
     {
       "name": "torchmaster-neoforge-1.21.1-21.1.9",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "torchmaster-neoforge-1.21.1-21.1.9.jar",
       "resolvedVersion": "21.1.9-release",
@@ -2170,7 +2146,7 @@
     {
       "name": "touhoulittlemaid-1.5.3-neoforge+mc1.21.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "touhoulittlemaid-1.5.3-neoforge+mc1.21.1.jar",
       "resolvedVersion": "1.5.3-neoforge+mc1.21.1",
@@ -2182,7 +2158,7 @@
     {
       "name": "tracks-neoforge-1.21.1-1.0.1",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "tracks-neoforge-1.21.1-1.0.1.jar",
       "resolvedVersion": "1.0.1",
@@ -2194,7 +2170,7 @@
     {
       "name": "tradeworks-1.0.7",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "tradeworks-1.0.7.jar",
       "resolvedVersion": "1.0.7",
@@ -2206,7 +2182,7 @@
     {
       "name": "trading_floor-3.0.16",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "trading_floor-3.0.16.jar",
       "resolvedVersion": "3.0.16",
@@ -2228,7 +2204,7 @@
     {
       "name": "wwoo-2.3.4",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "wwoo-2.3.4.jar",
       "resolvedVersion": "2.3.4",
@@ -2240,7 +2216,7 @@
     {
       "name": "xaerominimap-neoforge-1.21.1-26.4.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "xaerominimap-neoforge-1.21.1-26.4.2.jar",
       "resolvedVersion": "neoforge-1.21.1-26.4.2",
@@ -2252,7 +2228,7 @@
     {
       "name": "xaeroworldmap-neoforge-1.21.1-1.44.2",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "xaeroworldmap-neoforge-1.21.1-1.44.2.jar",
       "resolvedVersion": "neoforge-1.21.1-1.44.2",
@@ -2264,7 +2240,7 @@
     {
       "name": "yet_another_config_lib_v3-3.8.2+1.21.1-neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "yet_another_config_lib_v3-3.8.2+1.21.1-neoforge.jar",
       "resolvedVersion": "3.8.2+1.21.1-neoforge",
@@ -2276,7 +2252,7 @@
     {
       "name": "zfastnoise-1.0.13+1.21.1+neoforge",
       "source": "modrinth",
-      "side": "both",
+      "side": "client",
       "versionPin": "latest",
       "fileName": "zfastnoise-1.0.13+1.21.1+neoforge.jar",
       "resolvedVersion": "1.0.13+1.21.1+neoforge",

@@ -21,6 +21,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
 import time
 import urllib.error
@@ -318,7 +319,11 @@ def main() -> int:
     ap.add_argument("--repo", default=".", help="仓库根目录（含 pack.local.json）")
     ap.add_argument("--config", default="", help="配置文件（默认 <repo>/pack.local.json）")
     ap.add_argument("--out", default="", help="输出文件（默认 <repo>/mods.lock.generated.json）")
-    ap.add_argument("--write", action="store_true", help="直接覆盖 mods.lock.json")
+    ap.add_argument("--write", action="store_true",
+                    help="生成后直接覆盖 mods.lock.json（会重新联网跑一遍）")
+    ap.add_argument("--apply", action="store_true",
+                    help="把上次生成的 mods.lock.generated.json 应用为正式文件："
+                         "不联网、秒完成，并自动备份原文件为 mods.lock.json.bak")
     ap.add_argument("--only", choices=("client", "server", "both"), default="client",
                     help="登记哪一侧的源目录（默认 client：只有玩家端需要平台来源，"
                          "服务端走 SSH 直推无需登记；要带上服务端用 --only both）")
@@ -330,6 +335,27 @@ def main() -> int:
     args = ap.parse_args()
 
     repo = os.path.abspath(args.repo)
+
+    # --apply: 离线把上次生成结果应用到正式文件，不重新联网
+    if args.apply:
+        src = args.out or os.path.join(repo, "mods.lock.generated.json")
+        dst = os.path.join(repo, "mods.lock.json")
+        if not os.path.isfile(src):
+            log("找不到 %s —— 先跑一次不带参数的生成" % os.path.basename(src))
+            return 1
+        with open(src, encoding="utf-8") as f:
+            doc = json.load(f)
+        if not isinstance(doc, dict) or doc.get("schemaVersion") != 1 \
+                or not isinstance(doc.get("mods"), list):
+            log("生成文件结构非法（schemaVersion 必须为 1 且 mods 为数组），拒绝应用")
+            return 1
+        if os.path.isfile(dst):
+            shutil.copy2(dst, dst + ".bak")
+            log("已备份原文件: mods.lock.json.bak")
+        shutil.copy2(src, dst)
+        log("已应用: %s -> mods.lock.json（共 %d 条）" % (os.path.basename(src), len(doc["mods"])))
+        return 0
+
     cfg_path = args.config or os.path.join(repo, "pack.local.json")
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)
