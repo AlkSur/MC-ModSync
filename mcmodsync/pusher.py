@@ -121,6 +121,21 @@ def intersection_check(server_files: List[dict], client_source_dir: str,
     return sorted(missing)
 
 
+def report_missing_mods(missing: List[str], log, blocking: bool = False) -> None:
+    """列出「服务端有、客户端源目录没有」的 mod，一行一个便于逐条核对。
+
+    整条消息一次输出，所以时间戳只出现一次，列表项保持对齐缩进。
+    """
+    if not missing:
+        return
+    detail = "\n".join("    - %s" % name for name in missing)
+    msg = ("服务端存在而客户端源目录缺少的 mod（%d 个）:\n%s"
+           % (len(missing), detail))
+    if blocking:
+        raise PushError(EXIT_GENERIC, "交集检查阻断: " + msg)
+    log("警告: " + msg)
+
+
 def changes_summary(diff: Dict[str, List[dict]]) -> str:
     return "新增 %d、替换 %d、删除 %d、未变 %d" % (
         len(diff["added"]), len(diff["replaced"]), len(diff["deleted"]), len(diff["unchanged"]))
@@ -392,11 +407,7 @@ def push_server(cfg, conn, dry_run: bool = False, check_server_client: bool = Fa
                 log("[dry-run] 删除: %s" % e["path"])
             missing = intersection_check(server_files, cfg["client"]["sourceModsDir"],
                                          c["mods_dir"]) if server_files else []
-            if missing:
-                msg = "服务端存在而客户端源目录缺少的 mod（%d 个）: %s" % (len(missing), ", ".join(missing))
-                if check_server_client:
-                    raise PushError(EXIT_GENERIC, "交集检查阻断: " + msg)
-                log("警告: " + msg)
+            report_missing_mods(missing, log, blocking=check_server_client)
             log("[dry-run] 未执行任何写操作")
             return EXIT_OK
 
@@ -415,11 +426,7 @@ def push_server(cfg, conn, dry_run: bool = False, check_server_client: bool = Fa
 
         # 步骤5 双端交集检查
         missing = intersection_check(server_files, cfg["client"]["sourceModsDir"], c["mods_dir"])
-        if missing:
-            msg = "服务端存在而客户端源目录缺少的 mod（%d 个）: %s" % (len(missing), ", ".join(missing))
-            if check_server_client:
-                raise PushError(EXIT_GENERIC, "交集检查阻断: " + msg)
-            log("警告: " + msg)
+        report_missing_mods(missing, log, blocking=check_server_client)
 
         # 步骤6 版本号
         version = make_version()
