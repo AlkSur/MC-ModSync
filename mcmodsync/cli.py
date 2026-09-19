@@ -313,10 +313,17 @@ def cmd_package_client(args) -> int:
 
 
 def _common_parent() -> argparse.ArgumentParser:
-    """-c/--config 同时支持「子命令 -c ...」写法（计划书用法）。"""
+    """-c/--config 同时支持「子命令 -c ...」写法（计划书用法）。
+
+    --no-color 用 SUPPRESS 作默认值：子命令没写它时不会把顶层解析到的 True
+    覆盖回 False（否则 `mcmodsync --no-color doctor` 会失效）。
+    """
     c = argparse.ArgumentParser(add_help=False)
     c.add_argument("-c", "--config", default=None,
                    help="配置文件（默认 ./pack.local.json）")
+    c.add_argument("--no-color", dest="no_color", action="store_true",
+                   default=argparse.SUPPRESS,
+                   help="关闭彩色输出（写在子命令前或后都可以）")
     return c
 
 
