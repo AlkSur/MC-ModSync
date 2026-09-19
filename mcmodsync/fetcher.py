@@ -19,6 +19,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from . import hashing, manifest, provider_curseforge as cf
 from . import provider_modrinth as mr
+from . import console
 
 EXIT_OK = 0
 EXIT_GENERIC = 1
@@ -159,6 +160,13 @@ def fetch_mods(cfg, lock_path: str, upgrade: bool = False, lock_manual: bool = F
     skipped: List[str] = []
     manual: List[dict] = []
     failed: List[Tuple[str, str]] = []
+
+    if not mods:
+        # 空锁文件是最常见的"为什么什么都没下载"困惑来源，显式提示而不是静默 0。
+        log(console.paint(
+            "[提示] mods.lock.json 的 mods 是空列表，没有任何条目可处理。", "WARN"))
+        log("  要自动下载: 在 mods 数组里登记 {name, projectSlug, source, side, versionPin}；")
+        log("  已有本地 jar: 直接放进 server-mods/ / client-mods/ 即可，推送和发布不依赖锁文件。")
 
     if lock_manual:
         return _lock_manual(doc, lock_path, cfg, updated, skipped, manual, log)
