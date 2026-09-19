@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
 
+env:
+  # Windows runner 上 Python 的 stdout 被 CI 捕获（非 tty）时使用系统代码页
+  # cp1252，脚本里的中文 print 会抛 UnicodeEncodeError（见 tools/build_client.py）。
+  # 开启 UTF-8 模式后对所有 job / step 生效，无需改动任何脚本。
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 jobs:
   test:
     runs-on: ubuntu-latest
