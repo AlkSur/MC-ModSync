@@ -17,3 +17,5 @@ client-mods/
 # 依 AC-6「凭证零入库」补充覆盖。
 ssh.json
 /.idea/
+/pytest-junit.xml
+/pytest-result.txt
