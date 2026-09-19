@@ -1,5 +1,6 @@
 pack.local.json
 *.local.json
+*.local.json.bak
 .mcmodsync/
 private.key
 *.pem
