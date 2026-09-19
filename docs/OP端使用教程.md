@@ -2,6 +2,65 @@
 
 你是服主/OP。这个教程只讲怎么用，不讲原理。
 
+## 零、第一步：先让 `mcmodsync` 这个命令能跑起来（必做）
+
+`mcmodsync` 不是系统自带的命令，它是**这个仓库自带的一个 Python 命令行工具**。
+如果你直接敲：
+
+```
+mcmodsync
+```
+
+报下面这种错，**说明命令是有的，只是它所在的目录没进 PATH**（虚拟环境没激活）：
+
+```
+mcmodsync: 术语 'mcmodsync' 不会被识别为 cmdlet、函数、脚本文件或可执行程序的名称。
+```
+
+在仓库根目录任选一种方式解决（推荐 A）：
+
+**A. 激活仓库自带的虚拟环境（只对当前窗口有效，最稳）**
+
+PowerShell 里：
+
+```
+.\.venv\Scripts\Activate.ps1
+mcmodsync doctor
+```
+
+Git Bash 里：
+
+```
+source .venv/Scripts/activate
+mcmodsync doctor
+```
+
+激活成功后提示符前面会多出 `(.venv)`。**新开一个终端窗口要重新激活一次。**
+
+**B. 不想激活环境：用 `python -m` 方式调用**
+
+```
+.\.venv\Scripts\python.exe -m mcmodsync doctor
+```
+
+Git Bash 里：
+
+```
+./.venv/Scripts/python.exe -m mcmodsync doctor
+```
+
+**C. 装到全局 PATH（一次搞定，以后所有窗口直接敲 `mcmodsync`）**
+
+```
+.\.venv\Scripts\python.exe -m pip install -e .
+mcmodsync doctor
+```
+
+> 说明：以上三种方式任选其一即可。出现
+> `usage: mcmodsync [-h] [-c CONFIG] {keygen,doctor,fetch-mods,push-server,...}` 的帮助信息，就说明命令已经能用了。
+>
+> 另外，**所有命令都要在仓库根目录执行**（就是能看到 `mcmodsync/`、`pack.local.json` 的那一层），因为程序默认读取当前目录下的 `./pack.local.json`。
+
 ## 一、一次性准备（只做一次）
 
 1. 装好 Python 3.10 以上版本，安装依赖：
