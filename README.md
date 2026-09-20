@@ -60,8 +60,12 @@ python -m venv .venv
 | `MC-ModSync-B端-服务端脚本-v<版本>.zip` | 管服务器的人 | 单文件 `mcmodsync-b.py`（通常由 A 端自动推送，无需手工部署） |
 | `MC-ModSync-C端-玩家更新器-v<版本>.zip` | 玩家 | 全部内容放进游戏实例目录（与 `mods/` 同级），双击 `更新mod.bat` |
 
-`--build` 会先跑 `mcmodsync package-client`（需要 dev 依赖里的 PyInstaller）再打三个包；
-`dist/client-package/` 已经是最新时，可以省略 `--build` 只重新打压缩包。
+关于时效性（重要）：
+
+- C 端 zip 里装的是**编译产物**（`_updater/mcmodsync.exe`），只打 zip 不会重新编译。所以**改了 C 端代码后必须重建**，否则包里还是旧程序。
+- 脚本会**自动检测**：只要 C 端用到的模块（清单由 `tools/build_client.py --print-modules` 提供）、`packaging/mcmodsync.spec`、`entries/` 或 `pack.local.json` 比现有产物新，就先自动跑一次 `package-client`。**只改文档或 A 端代码不会触发**（那部分直接读源码打进包）。
+- 打包是**确定性**的：源码不变时重复执行，三个 zip 的字节与 SHA256 完全一致，可以直接把校验值写进 Release 说明。
+- `--build` 强制重建；`--no-build` 跳过自动构建（可能打进旧产物）。首次使用需要 dev 依赖：`pip install -e ".[dev]"`。
 
 ## 开发
 

@@ -157,8 +157,22 @@ def open_zip(path):
         return alt, zipfile.ZipFile(alt, "w", zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
-def add_dir(zf, root, rel_dir, arc_prefix):
-    """递归添加目录（跳过 __pycache__ / .pyc）。"""
+# 确定性打包：条目时间戳固定，内容不变则 zip 字节与 SHA256 不变（便于发布校验）
+FIXED_DT = (1980, 1, 1, 0, 0, 0)
+
+
+def _write(zf, full_path, arc_name, data=None):
+    zi = zipfile.ZipInfo(arc_name, date_time=FIXED_DT)
+    zi.compress_type = zipfile.ZIP_DEFLATED
+    zi.external_attr = 0o644 << 16
+    if data is None:
+        with open(full_path, "rb") as f:
+            data = f.read()
+    zf.writestr(zi, data)
+
+
+def add_dir(zf, root, rel_dir, arc_prefix, exclude=()):
+    """递归添加目录（跳过 __pycache__ / .pyc / exclude 中的相对路径）。"""
     base = os.path.join(root, rel_dir)
     for dirpath, dirs, files in os.walk(base):
         dirs[:] = [d for d in dirs if d not in ("__pycache__", ".git", ".idea")]
@@ -167,27 +181,87 @@ def add_dir(zf, root, rel_dir, arc_prefix):
                 continue
             full = os.path.join(dirpath, name)
             rel = os.path.relpath(full, root).replace(os.sep, "/")
-            zf.write(full, arc_prefix + rel)
+            if rel in exclude:
+                continue
+            _write(zf, full, arc_prefix + rel)
 
 
 def add_file(zf, root, rel, arc_prefix=""):
     full = os.path.join(root, rel)
-    zf.write(full, arc_prefix + rel.replace(os.sep, "/"))
+    _write(zf, full, arc_prefix + rel.replace(os.sep, "/"))
 
 
 def add_text(zf, arc_name, text):
-    zf.writestr(arc_name, text.replace("\n", "\r\n"))
+    _write(zf, None, arc_name, text.replace("\n", "\r\n").encode("utf-8"))
+
+
+def _client_watched_files():
+    """真正影响 C 端成品的文件：C 端载荷模块 + spec + 入口模板 + 配置。
+
+    模块清单向 build_client.py 询问（--print-modules），所以以后新增 C 端模块
+    会自动被纳入监视，不需要改这里。
+    """
+    watched = [
+        os.path.join(REPO, "packaging", "mcmodsync.spec"),
+        os.path.join(REPO, "pack.local.json"),
+        os.path.join(REPO, "entries", "更新mod.bat"),
+        os.path.join(REPO, "entries", "更新mod.sh"),
+    ]
+    bc = os.path.join(REPO, "tools", "build_client.py")
+    try:
+        r = subprocess.run([sys.executable, bc, "--print-modules"],
+                           cwd=REPO, capture_output=True, text=True)
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].endswith(".py"):
+                watched.append(os.path.join(REPO, parts[1]))
+    except Exception:
+        pass
+    return [p for p in watched if os.path.isfile(p)]
+
+
+def client_package_stale():
+    """玩家端产物是否已过期（C 端相关源文件比已构建的 exe 新）。
+
+    只打 zip 不会重新编译 exe，所以这些文件更新后必须重建，否则 C 端 zip 里
+    装的仍是旧程序。仅改文档 / A 端代码不会触发。
+    """
+    exe = os.path.join(REPO, "dist", "client-package", "_updater", "mcmodsync.exe")
+    if not os.path.isfile(exe):
+        return True, "尚未构建"
+    built = os.path.getmtime(exe)
+    newest, newest_file = built, ""
+    for p in _client_watched_files():
+        try:
+            m = os.path.getmtime(p)
+        except OSError:
+            continue
+        if m > newest:
+            newest, newest_file = m, os.path.relpath(p, REPO)
+    if newest > built:
+        return True, "较新的源文件: %s" % newest_file
+    return False, ""
 
 
 def main():
     ap = argparse.ArgumentParser(
         description="生成 A/B/C 三端发布包（解压即用）")
     ap.add_argument("--build", action="store_true",
-                    help="先构建玩家端（等价于 mcmodsync package-client），再打三包 —— 一条命令出全部产物")
+                    help="强制先构建玩家端（等价于 mcmodsync package-client），再打三包")
+    ap.add_argument("--no-build", action="store_true",
+                    help="即使检测到玩家端产物过期也不重新构建（只打 zip，可能打进旧产物）")
     args = ap.parse_args()
 
-    if args.build:
-        print("=== 先构建玩家端：python -m mcmodsync package-client ===")
+    stale, why = client_package_stale()
+    if stale and args.no_build:
+        print("[警告] 玩家端产物已过期（%s），本次按 --no-build 跳过构建，"
+              "C 端 zip 里可能是旧程序。" % why)
+    elif args.build or stale:
+        if args.build:
+            print("=== 先构建玩家端：python -m mcmodsync package-client ===")
+        else:
+            print("=== 检测到玩家端产物已过期（%s），自动重新构建 ===" % why)
+            print("    （只改文档/A 端代码时不会触发；要跳过可用 --no-build）")
         r = subprocess.run([sys.executable, "-m", "mcmodsync", "package-client"], cwd=REPO)
         if r.returncode != 0:
             print("player build failed (exit %d). "
@@ -195,6 +269,8 @@ def main():
                   'pip install -e ".[dev]"' % r.returncode)
             return r.returncode
         print()
+    else:
+        print("玩家端产物是最新的，跳过构建（--build 可强制重建）")
 
     src_check = os.path.join(REPO, "dist", "client-package")
     if not os.path.isdir(src_check):
