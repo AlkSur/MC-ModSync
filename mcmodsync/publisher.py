@@ -66,6 +66,40 @@ def compute_delete(old_manifest: Optional[dict], new_files: List[dict], version:
     return [{"path": p, "deletedInVersion": acc[p]} for p in sorted(acc)]
 
 
+def gc_unreferenced(store, files: List[dict], version: str, log=print) -> dict:
+    """清理对象存储：只保留当前清单引用的 blob 与最新一份版本清单。
+
+    - blobs/<sha> 为内容寻址；未被当前清单引用的（历史版本被替换掉的 jar）删除；
+    - manifests/*.json 只留当前版本那份（C 端只读指针 manifest.json，不需要历史清单）；
+    - 返回 {"blobs": 删除数, "manifests": 删除数, "freed": 释放字节}。
+
+    注意：本函数不做时间保护窗口——由调用方决定是否启用（默认每次发布后执行）。
+    """
+    referenced = {"blobs/%s/%s/%s" % (f["sha256"][0:2], f["sha256"][2:4], f["sha256"])
+                  for f in files}
+    removed_blobs = freed = 0
+    for o in store.list_objects("blobs"):
+        if o["key"] not in referenced:
+            store.delete(o["key"])
+            removed_blobs += 1
+            freed += o["size"]
+
+    keep_manifest = "manifests/%s.json" % version
+    removed_manifests = 0
+    for o in store.list_objects("manifests"):
+        if o["key"] != keep_manifest:
+            store.delete(o["key"])
+            removed_manifests += 1
+            freed += o["size"]
+
+    if removed_blobs or removed_manifests:
+        log("已清理未引用对象: blob %d 个、清单 %d 个"
+            % (removed_blobs, removed_manifests))
+    else:
+        log("无需清理：存储中已无未引用对象")
+    return {"blobs": removed_blobs, "manifests": removed_manifests, "freed": freed}
+
+
 def build_version_manifest(pack_id: str, version: str, notes: str, files: List[dict],
                            delete: List[dict], created_at: Optional[str] = None) -> dict:
     return {
@@ -156,7 +190,7 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
                    server_files: Optional[List[dict]] = None,
                    check_server_client: bool = False,
                    local_manifest: Optional[dict] = None,
-                   lock_path: str = "mods.lock.json") -> int:
+                   lock_path: str = "mods.lock.json", gc: bool = True) -> int:
     if not version:
         raise PublishError(EXIT_GENERIC, "publish-client 必须提供 --version（缺失立即报错）")
 
@@ -284,6 +318,15 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
     if state_file:
         save_publish_state(state_file, signed)
         log("已写回本地发布状态: %s" % state_file)
+
+    # 步骤9 清理：对象存储只保留「当前版本引用的 blob + 最新一份版本清单」
+    if gc:
+        try:
+            st = gc_unreferenced(store, files, version, log)
+            log("存储清理: 删除旧 blob %d 个、旧清单 %d 个，释放 %.1f MiB"
+                % (st["blobs"], st["manifests"], st["freed"] / 1048576.0))
+        except Exception as e:      # GC 失败不影响发布结果（指针已生效）
+            log("警告: 存储清理失败（不影响本次发布）: %s" % e)
 
     log("publish-client 完成: version=%s files=%d delete=%d" % (version, len(files), len(delete)))
     return EXIT_OK

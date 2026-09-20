@@ -289,7 +289,8 @@ def cmd_publish_client(args) -> int:
     logger = logutil.setup_logger(None, name="mcmodsync")
     try:
         return publisher.publish_client(cfg, store, args.version, notes=args.notes or "",
-                                        dry_run=args.dry_run, log=logger.info)
+                                        dry_run=args.dry_run, log=logger.info,
+                                        gc=not getattr(args, "no_gc", False))
     except publisher.PublishError as e:
         logger.info("publish-client 失败（码 %s）: %s" % (e.exit_code, e))
         return e.exit_code
@@ -361,6 +362,8 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--version", default="", help="semver，必填")
     pc.add_argument("--notes", default="")
     pc.add_argument("--dry-run", action="store_true")
+    pc.add_argument("--no-gc", action="store_true",
+                    help="发布后不清理对象存储（默认会删除不再被引用的旧 blob 与旧清单）")
 
     pk = sub.add_parser("package-client", parents=[C],
                         help="打包客户端分发包（exe + .py 兜底 + config.json + SHA256SUMS）")

@@ -59,6 +59,15 @@ class MemStore:
     def get_cache_control(self, key: str):
         return self.objs.get(key, (None, None))[1]
 
+    def list_objects(self, sub_prefix: str = "") -> list:
+        base = sub_prefix.lstrip("/").rstrip("/") + "/" if sub_prefix else ""
+        out = []
+        for k, (data, _cc) in sorted(self.objs.items()):
+            if base and not k.startswith(base):
+                continue
+            out.append({"key": k, "size": len(data), "last_modified": None})
+        return out
+
 
 def _blob_key(sha: str) -> str:
     return "blobs/%s/%s/%s" % (sha[:2], sha[2:4], sha)
@@ -335,3 +344,36 @@ def test_live_publish_three_versions_with_cdn(tmp_path) -> None:
     resp = cli.list_objects_v2(Bucket=st["bucket"], Prefix=prefix)
     for o in resp.get("Contents", []):
         cli.delete_object(Bucket=st["bucket"], Key=o["Key"])
+
+
+# --------------------------------------------------------------------------
+# 存储清理（GC）：对象存储只保留「当前版本引用的 blob + 最新一份版本清单」
+# --------------------------------------------------------------------------
+
+def test_gc_removes_unreferenced_blobs_and_old_manifests(pub) -> None:
+    _put(pub, {"a.jar": b"A1", "b.jar": b"B1"})
+    assert _publish(pub, "1.0.0") == 0
+    store = pub["store"]
+    old_blob = _blob_key(_sha(b"A1"))
+    assert old_blob in store.objs
+    assert "manifests/1.0.0.json" in store.objs
+
+    _put(pub, {"a.jar": b"A2"})                 # a.jar 内容变了
+    assert _publish(pub, "1.0.1") == 0
+
+    assert old_blob not in store.objs, "不再被引用的旧 blob 应被删除"
+    assert _blob_key(_sha(b"A2")) in store.objs, "新 blob 必须保留"
+    assert _blob_key(_sha(b"B1")) in store.objs, "仍被引用的 blob 必须保留"
+    assert "manifests/1.0.0.json" not in store.objs, "旧版本清单应被删除"
+    assert "manifests/1.0.1.json" in store.objs
+    assert "manifest.json" in store.objs, "指针必须保留"
+
+
+def test_gc_can_be_disabled(pub) -> None:
+    _put(pub, {"a.jar": b"A1"})
+    assert _publish(pub, "1.0.0") == 0
+    old_blob = _blob_key(_sha(b"A1"))
+    _put(pub, {"a.jar": b"A2"})
+    assert _publish(pub, "1.0.1", gc=False) == 0
+    assert old_blob in pub["store"].objs, "gc=False 时应保留旧 blob"
+    assert "manifests/1.0.0.json" in pub["store"].objs
