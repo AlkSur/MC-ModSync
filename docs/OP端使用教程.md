@@ -2,6 +2,33 @@
 
 你是服主/OP。这个教程只讲怎么用，不讲原理。
 
+## 〇、你需要哪些文件
+
+你手上的 A 端压缩包解压后应该是这个结构，**全部留着**——跑 `package-client` 时会用到 `client\`、`packaging\`、`entries\`：
+
+```
+mc-modsync\
+├── mcmodsync\               ← A 端 Python 包（核心，必需）
+├── server\mcmodsync-b.py    ← B 端脚本，push-server 会把它传到服务器（必需）
+├── client\mcmodsync.py      ← C 端兜底源码，打包玩家端时用（必需）
+├── packaging\mcmodsync.spec ← 打包玩家端 exe 用（必需）
+├── entries\                 ← 玩家端入口模板（更新mod.bat / .sh，必需）
+├── tools\                   ← 运维脚本：gen_lock.py 等（必需）
+├── docs\                    ← 本文档
+├── pyproject.toml           ← 安装用（必需）
+├── pack.example.json        ← 配置模板，复制成 pack.local.json（必需）
+└── mods.lock.json           ← 客户端 mod 清单（初始为空）
+```
+
+**另外两样要你自己准备**（不随包分发）：
+
+| 东西 | 怎么来 |
+| --- | --- |
+| `pack.local.json` | 把 `pack.example.json` 复制改名，填服务器地址 / SSH / 七彩云 AK/SK |
+| 私钥 | 首次运行 `mcmodsync keygen` 生成，存在 `~/.mcmodsync/private.key`，**换电脑要带着** |
+
+包里**没有也不该有**：AK/SK、私钥、`server-mods/`、`client-mods/`——这些是你自己的数据。
+
 ## 零、第一步：先让 `mcmodsync` 这个命令能跑起来（必做）
 
 `mcmodsync` 不是系统自带的命令，它是**这个仓库自带的一个 Python 命令行工具**。
