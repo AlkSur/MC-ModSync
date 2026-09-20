@@ -103,6 +103,33 @@ def paint(text: str, level: str) -> str:
     return "%s%s%s" % (color, text, RESET)
 
 
+# --------------------------------------------------------------------------
+# 按内容关键词判定颜色（A 端日志与 C 端控制台共用同一套语义）
+# 顺序敏感：先判失败，再判警告，最后判成功。
+# --------------------------------------------------------------------------
+
+FAIL_WORDS = ("失败", "错误", "不符", "不一致", "不匹配", "篡改", "异常", "拒绝")
+WARN_WORDS = ("警告", "跳过", "未识别", "缺失", "回退")
+OK_WORDS = ("成功", "完成", "全绿", "已就绪", "通过", "已下载", "HTTP 200")
+
+
+def level_of_text(text: str) -> Optional[str]:
+    """按关键词给出颜色级别；无匹配返回 None（保持默认色）。"""
+    if any(w in text for w in FAIL_WORDS):
+        return "FAIL"
+    if any(w in text for w in WARN_WORDS):
+        return "WARN"
+    if any(w in text for w in OK_WORDS):
+        return "PASS"
+    return None
+
+
+def paint_text(text: str) -> str:
+    """整行按关键词着色（无匹配则原样返回）。"""
+    lv = level_of_text(text)
+    return paint(text, lv) if lv else text
+
+
 def status_mark(status: str) -> str:
     """返回带色的 [PASS] / [FAIL] / [SKIP] 标记。"""
     mark = _MARK.get(status, "[%s]" % status)
