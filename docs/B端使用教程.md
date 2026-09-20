@@ -6,6 +6,35 @@ B 是住在 MC 服务器上的一个小脚本 `mcmodsync-b.py`。你只需要知
 2. **你基本不用碰它**。OP 端的命令会自动上传、升级、调用它。
 3. **重启服务器永远是你手动做的**。脚本不替你重启，因为启动成不成功只有你亲眼确认才算数。
 
+## 〇、你需要哪些文件
+
+B 端**只有一个文件**：
+
+```
+mcmodsync-b.py          ← B 脚本本体（单文件，纯 Python 标准库，兼容 Python 3.8+）
+```
+
+| 项 | 说明 |
+| --- | --- |
+| 需要你配置什么 | **什么都不用配**。服务器地址、目录、保留份数都由 OP 端推送时传参进来 |
+| 需要装什么依赖 | **不需要**。只用 Python 标准库，服务器自带的 `python3` 就能跑 |
+| 需要常驻运行吗 | **不需要**。平时不运行，被 OP 远程调用时才起来干一次活 |
+
+**通常你不用手工部署它**：OP 执行 `mcmodsync push-server` 时会自动把 B 上传到服务器（路径见 `pack.local.json` 的 `server.remoteBPath`，默认 `/www/mcmodsync-b.py`），并在协议版本变化时自动升级、留 `.bak` 备份。
+
+只有两种情况需要你手工放：
+
+1. 服务器**没有** `python3`（先装：`apt install python3` 或 `yum install python3`，无需 pip）
+2. OP 端的 SSH 账号没有写 `/www` 的权限——这时候把文件放进有权限的目录，让 OP 改配置里的 `remoteBPath` 指过去
+
+手工放置就是**把这一个文件复制到服务器**，例如：
+
+```
+scp mcmodsync-b.py root@你的服务器:/www/mcmodsync-b.py
+```
+
+不需要建任何目录、不需要改文件内容——它自己会创建 `.mcmodsync/`、`.mcmodsync-staging/`、history 目录。
+
 ## 一、服务器上多了哪些东西
 
 | 位置 | 是什么 |
