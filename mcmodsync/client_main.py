@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 from typing import List, Optional, TextIO
 
-from . import client
+from . import client, console
 from .logutil import setup_logger
 
 PROG = "mcmodsync"
@@ -27,7 +27,12 @@ def log_path_for(target: str) -> str:
 
 
 class Console:
-    """终端 + 日志文件双写；终端渲染纯文本进度条。"""
+    """终端 + 日志文件双写。
+
+    - 终端：按内容关键词着色（复用 mcmodsync.console，纯标准库）；
+    - 日志文件：始终写**无色**原文，便于事后查看；
+    - 进度条：原地刷新，完成时转绿。
+    """
 
     def __init__(self, logger, stream: Optional[TextIO] = None, bar_width: int = 28) -> None:
         self.logger = logger
@@ -35,13 +40,46 @@ class Console:
         self.bar_width = bar_width
         self._bar_open = False
 
-    def log(self, msg: str) -> None:
+    def _plain(self, msg: str) -> None:
         if self._bar_open:
             self.stream.write("\n")
             self._bar_open = False
-        self.stream.write("%s\n" % msg)
+        self.stream.write(msg + "\n")
         self.stream.flush()
-        self.logger.info(msg)
+
+    def _emit(self, plain: str, colored: str) -> None:
+        """终端写带色文本、日志文件写纯文本（颜色码绝不能进日志）。"""
+        self._plain(colored)
+        self.logger.info(plain)
+
+    def log(self, msg: str) -> None:
+        self._emit(msg, console.paint_text(msg))
+
+    def rule(self, title: str = "") -> None:
+        """分隔线；带标题时先分隔再输出标题。"""
+        bar = "-" * 62
+        self._emit(bar, console.dim(bar))
+        if title:
+            self._emit(title, console.bold(title))
+
+    def header(self, command: str) -> None:
+        bar = "=" * 62
+        title = "MC-ModSync 客户端  %s   |   %s" % (
+            command, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self._emit(bar, console.dim(bar))
+        self._emit(title, console.bold(title))
+        self._emit(bar, console.dim(bar))
+
+    def finish(self, rc: int, log_path: str) -> None:
+        bar = "=" * 62
+        self._emit(bar, console.dim(bar))
+        if rc == 0:
+            text = "完成：成功（退出码 0）"
+            self._emit(text, console.paint(text, "PASS"))
+        else:
+            text = "完成：失败（退出码 %d）" % rc
+            self._emit(text, console.paint(text, "FAIL"))
+            self.log("详细日志：%s" % log_path)
 
     def progress(self, done_files: int, total_files: int,
                  done_bytes: int, total_bytes: int) -> None:
@@ -50,9 +88,10 @@ class Console:
         frac = min(1.0, done_files / float(total_files))
         filled = int(round(frac * self.bar_width))
         bar = "#" * filled + "-" * (self.bar_width - filled)
-        line = ("进度 [%s] %3d%%  %d/%d 个文件  %.1f/%.1f MiB"
-                % (bar, int(frac * 100), done_files, total_files,
-                   done_bytes / 1048576.0, total_bytes / 1048576.0))
+        plain = ("进度 [%s] %3d%%  %d/%d 个文件  %.1f/%.1f MiB"
+                 % (bar, int(frac * 100), done_files, total_files,
+                    done_bytes / 1048576.0, total_bytes / 1048576.0))
+        line = console.paint(plain, "PASS") if done_files >= total_files else plain
         self.stream.write("\r" + line)
         if done_files >= total_files:
             self.stream.write("\n")
@@ -60,7 +99,7 @@ class Console:
         else:
             self._bar_open = True
         self.stream.flush()
-        self.logger.debug(line.strip())
+        self.logger.debug(plain)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,9 +141,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger = setup_logger(lp, name=LOGGER_NAME, console=False)
     con = Console(logger)
 
-    con.log("MC-ModSync 客户端：%s" % args.command)
-    con.log("实例目录: %s" % target)
-    con.log("日志文件: %s" % lp)
+    con.header(args.command)
+    con.log("实例目录：%s" % target)
+    con.log("日志文件：%s" % lp)
 
     if args.command == "sync":
         rc = client.sync(target, strict=args.strict, no_downgrade=args.no_downgrade,
@@ -116,10 +155,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         rc = client.doctor(target, log=con.log)
 
-    if rc == 0:
-        con.log("结束：退出码 0。")
-    else:
-        con.log("结束：退出码 %d。失败详情请查看日志：%s" % (rc, lp))
+    con.finish(rc, lp)
     return rc
 
 

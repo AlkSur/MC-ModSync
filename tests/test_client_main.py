@@ -81,13 +81,16 @@ def test_sync_console_and_log_file(env, capsys) -> None:
     assert rc == 0
     out = capsys.readouterr().out
 
-    assert "MC-ModSync 客户端：sync" in out
-    assert "实例目录:" in out
-    assert "日志文件:" in out
+    assert "MC-ModSync 客户端  sync" in out
+    assert "实例目录：" in out
+    assert "日志文件：" in out
     assert "进度 [" in out and "个文件" in out
     assert "MiB" in out
     assert "同步完成：" in out
+    assert "完成：成功（退出码 0）" in out
     assert not _has_emoji(out), "控制台不得输出 emoji"
+    # 非终端（测试捕获）时不得出现 ANSI 转义码
+    assert "\x1b[" not in out, "非 tty 环境下不得输出颜色转义码"
 
     lp = client_main.log_path_for(inst.root)
     assert os.path.isfile(lp)

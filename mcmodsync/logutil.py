@@ -54,11 +54,6 @@ class _ColorFormatter(logging.Formatter):
         logging.ERROR: "FAIL",
         logging.CRITICAL: "FAIL",
     }
-    # INFO 级里按内容高亮（顺序敏感：先判失败，再判警告，最后判成功）
-    _FAIL_WORDS = ("失败", "错误", "不符", "不一致")
-    _WARN_WORDS = ("警告", "跳过", "未识别", "缺失")
-    _OK_WORDS = ("成功", "完成", "全绿", "已就绪", "通过")
-
     def format(self, record: logging.LogRecord) -> str:
         text = super().format(record)
         try:
@@ -70,13 +65,8 @@ class _ColorFormatter(logging.Formatter):
         level = self._LEVEL_COLOR.get(record.levelno)
         if level:
             return console.paint(text, level)
-        if any(w in text for w in self._FAIL_WORDS):
-            return console.paint(text, "FAIL")
-        if any(w in text for w in self._WARN_WORDS):
-            return console.paint(text, "WARN")
-        if any(w in text for w in self._OK_WORDS):
-            return console.paint(text, "PASS")
-        return text
+        # INFO 级按内容关键词高亮（与 C 端控制台共用 console 里的同一套规则）
+        return console.paint_text(text)
 
 
 class _MaskFilter(logging.Filter):

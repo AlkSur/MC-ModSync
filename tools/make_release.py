@@ -1,12 +1,26 @@
 # -*- coding: utf-8 -*-
-"""生成三端发布包（解压即用）。临时脚本，跑完可删。"""
+"""生成三端发布包（解压即用）。
+
+三端包名统一使用**系统版本**（与 pyproject.toml 一致）。
+已发布的 mod 清单版本只写在包内说明里，不参与包名——两者语义不同。
+"""
+import json
 import os
+import time
 import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "dist", "release")
-VER = "2.0.0"
-CVER = "1.0.1"
+VER = "2.0.0"          # 系统版本（三端统一），与 pyproject.toml 保持一致
+
+
+def current_pack_version():
+    """已发布的 mod 清单版本（内容版本，与系统版本无关）。"""
+    p = os.path.join(REPO, "client-publish-state.json")
+    try:
+        return json.load(open(p, encoding="utf-8")).get("version") or "未知"
+    except Exception:
+        return "未知"
 
 # ---- A 端（OP 工具）----
 A_ROOT = "MC-ModSync-A端-OP工具"
@@ -112,8 +126,24 @@ C_README = """MC-ModSync · C 端（玩家更新器）
   也不需要手动下载任何 mod。
 
 【出问题了】
-  详细说明和退出码对照表见 docs\\C端使用教程.md
+  详细说明和退出码对照表见 C端使用教程.md
+
+【版本说明】（两个版本是两回事，别搞混）
+  更新器版本   ：2.0.0   —— 本包（程序）的版本，三端统一
+  内容清单版本 ：{{PACKVER}}   —— 服主已发布的 mod 清单版本，由服主发布时决定
+  更新器只看内容清单版本决定要不要更新 mod，两者互不影响。
 """
+
+
+def open_zip(path):
+    """打开待写 zip；文件被占用（预览/杀软句柄未释放）时自动换名，不中断打包。"""
+    try:
+        return path, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9)
+    except PermissionError:
+        alt = path[:-4] + "-" + time.strftime("%H%M%S") + ".zip"
+        print("  [警告] %s 被占用，改写到 %s" % (os.path.basename(path),
+                                                os.path.basename(alt)))
+        return alt, zipfile.ZipFile(alt, "w", zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
 def add_dir(zf, root, rel_dir, arc_prefix):
@@ -140,10 +170,17 @@ def add_text(zf, arc_name, text):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # 清掉旧版本包，避免新旧版本混在同一个目录里
+    for old in os.listdir(OUT):
+        if old.endswith(".zip"):
+            try:
+                os.remove(os.path.join(OUT, old))
+            except OSError:
+                pass   # 被占用/沙箱限制时跳过，不中断打包
 
     # ---------- A 端 ----------
-    p = os.path.join(OUT, "MC-ModSync-A端-OP工具-v%s.zip" % VER)
-    with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    p, _z = open_zip(os.path.join(OUT, "MC-ModSync-A端-OP工具-v%s.zip" % VER))
+    with _z as zf:
         add_text(zf, A_ROOT + "/先看这里.txt", A_README)
         for rel in A_FILES:
             add_file(zf, REPO, rel, A_ROOT + "/")
@@ -154,8 +191,8 @@ def main():
     print("A:", p, os.path.getsize(p), "bytes")
 
     # ---------- B 端 ----------
-    p = os.path.join(OUT, "MC-ModSync-B端-服务端脚本-v%s.zip" % VER)
-    with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    p, _z = open_zip(os.path.join(OUT, "MC-ModSync-B端-服务端脚本-v%s.zip" % VER))
+    with _z as zf:
         add_text(zf, B_ROOT + "/先看这里.txt", B_README)
         zf.write(os.path.join(REPO, "server", "mcmodsync-b.py"),
                  B_ROOT + "/mcmodsync-b.py")
@@ -164,10 +201,10 @@ def main():
     print("B:", p, os.path.getsize(p), "bytes")
 
     # ---------- C 端（裸文件，便于直接解压到游戏目录）----------
-    p = os.path.join(OUT, "MC-ModSync-C端-玩家更新器-v%s.zip" % CVER)
+    p, _z = open_zip(os.path.join(OUT, "MC-ModSync-C端-玩家更新器-v%s.zip" % VER))
     src = os.path.join(REPO, "dist", "client-package")
-    with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        add_text(zf, "先看这里.txt", C_README)
+    with _z as zf:
+        add_text(zf, "先看这里.txt", C_README.replace("{{PACKVER}}", current_pack_version()))
         for name in ("更新mod.bat", "更新mod.sh", "SHA256SUMS.txt"):
             add_file(zf, src, name)
         add_dir(zf, src, "_updater", "")   # rel 已含 "_updater/" 前缀

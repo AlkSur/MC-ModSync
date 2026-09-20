@@ -29,6 +29,37 @@ mc-modsync\
 
 包里**没有也不该有**：AK/SK、私钥、`server-mods/`、`client-mods/`——这些是你自己的数据。
 
+### 手上没有现成压缩包？两种办法
+
+**办法一：用整个源码仓库当 A 端（最直接）**
+
+A 端**就是整个仓库**，不需要额外拆分。拿到源码（git clone 或下载 zip）后，只要确认这些目录/文件齐全就能直接开工：
+
+```
+mcmodsync\  server\  client\  packaging\  entries\  tools\
+pyproject.toml  pack.example.json  mods.lock.json
+```
+
+**办法二：自己生成三端压缩包**
+
+在仓库根目录执行：
+
+```
+python tools\make_release.py
+```
+
+它会在 `dist\release\` 下生成三个包（A 端 / B 端 / C 端），可以直接分发。注意 C 端包必须先跑过 `mcmodsync package-client`（否则 `dist\client-package\` 是空的）。
+
+### 三端之间怎么分
+
+| 端 | 从仓库里拿什么 | 给谁 |
+| --- | --- | --- |
+| **A 端** | 整个仓库 | 你自己（服主/OP） |
+| **B 端** | 只有 `server\mcmodsync-b.py` 一个文件 | 管服务器的人（通常不用手工给，推送时自动上传） |
+| **C 端** | 跑 `mcmodsync package-client` 生成的 `dist\client-package\` | 玩家 |
+
+C 端**不能直接把源码发给玩家**——`package-client` 会把你的 CDN 地址和公钥渲染进 `config.json`，这一步必须由你来跑。
+
 ## 零、第一步：先让 `mcmodsync` 这个命令能跑起来（必做）
 
 `mcmodsync` 不是系统自带的命令，它是**这个仓库自带的一个 Python 命令行工具**。

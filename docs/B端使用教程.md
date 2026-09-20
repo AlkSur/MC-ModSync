@@ -35,6 +35,32 @@ scp mcmodsync-b.py root@你的服务器:/www/mcmodsync-b.py
 
 不需要建任何目录、不需要改文件内容——它自己会创建 `.mcmodsync/`、`.mcmodsync-staging/`、history 目录。
 
+### 手上没有现成压缩包？两种办法
+
+**办法一：从源码仓库自己出包**
+
+在仓库根目录执行：
+
+```
+python tools\make_release.py
+```
+
+生成 `dist\release\MC-ModSync-B端-服务端脚本-v2.0.0.zip`，解压即用。
+
+**办法二：直接从仓库里挑出这一个文件（B 端就是单文件）**
+
+```
+<仓库根>\server\mcmodsync-b.py     ← 复制它到服务器即可，其余文件和 B 端无关
+```
+
+不需要带 `mcmodsync\`、`tools\`、`client\` 等目录——B 端只用这一个文件，且不依赖任何第三方库（服务器自带的 Python 3.8+ 就能跑）。
+
+验证服务器上能否运行：
+
+```bash
+python3 mcmodsync-b.py --help
+```
+
 ## 一、服务器上多了哪些东西
 
 | 位置 | 是什么 |
