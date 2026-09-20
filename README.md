@@ -44,6 +44,25 @@ Minecraft NeoForge 服务器 mods 增量同步系统。三个脚本各管一段�
 核心代码在 `mcmodsync/`（A 端包）、`server/`（B 端源码）、`client/`（C 端源码）、
 `tools/`（构建与运维脚本）、`tests/`（测试）。
 
+## 一键生成三端发布包
+
+```bash
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -e ".[dev]"   # Windows；Linux/macOS 用 .venv/bin/python
+.venv/Scripts/python.exe tools/make_release.py --build
+```
+
+产物在 `dist/release/`：
+
+| 压缩包 | 给谁 | 解压后 |
+| --- | --- | --- |
+| `MC-ModSync-A端-OP工具-v<版本>.zip` | 服主 / OP | 解压即可用，只需填 `pack.example.json` → `pack.local.json` |
+| `MC-ModSync-B端-服务端脚本-v<版本>.zip` | 管服务器的人 | 单文件 `mcmodsync-b.py`（通常由 A 端自动推送，无需手工部署） |
+| `MC-ModSync-C端-玩家更新器-v<版本>.zip` | 玩家 | 全部内容放进游戏实例目录（与 `mods/` 同级），双击 `更新mod.bat` |
+
+`--build` 会先跑 `mcmodsync package-client`（需要 dev 依赖里的 PyInstaller）再打三个包；
+`dist/client-package/` 已经是最新时，可以省略 `--build` 只重新打压缩包。
+
 ## 开发
 
 ```bash

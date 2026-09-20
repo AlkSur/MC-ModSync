@@ -40,15 +40,33 @@ mcmodsync\  server\  client\  packaging\  entries\  tools\
 pyproject.toml  pack.example.json  mods.lock.json
 ```
 
-**办法二：自己生成三端压缩包**
+**办法二：自己生成三端压缩包（一条命令）**
 
 在仓库根目录执行：
 
 ```
-python tools\make_release.py
+.\.venv\Scripts\python.exe tools\make_release.py --build
 ```
 
-它会在 `dist\release\` 下生成三个包（A 端 / B 端 / C 端），可以直接分发。注意 C 端包必须先跑过 `mcmodsync package-client`（否则 `dist\client-package\` 是空的）。
+它会在 `dist\release\` 下生成三个包，可以直接分发：
+
+```
+MC-ModSync-A端-OP工具-v2.0.0.zip        ← 你自己用
+MC-ModSync-B端-服务端脚本-v2.0.0.zip    ← 给管服务器的人
+MC-ModSync-C端-玩家更新器-v2.0.0.zip    ← 发给玩家
+```
+
+`--build` 会先跑 `mcmodsync package-client`（构建 exe + 渲染 config.json）再打三个包，所以**一条命令就够了**。
+
+> **前提**：需要 dev 依赖（PyInstaller）。如果报 `No module named PyInstaller`，先执行一次：
+> ```
+> .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+> ```
+>
+> 如果 `dist\client-package\` 已经是最新的（没改过 C 端代码），可以省掉 `--build`：
+> ```
+> .\.venv\Scripts\python.exe tools\make_release.py
+> ```
 
 ### 三端之间怎么分
 

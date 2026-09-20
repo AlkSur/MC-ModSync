@@ -4,8 +4,11 @@
 三端包名统一使用**系统版本**（与 pyproject.toml 一致）。
 已发布的 mod 清单版本只写在包内说明里，不参与包名——两者语义不同。
 """
+import argparse
 import json
 import os
+import subprocess
+import sys
 import time
 import zipfile
 
@@ -69,6 +72,14 @@ A_README = """MC-ModSync · A 端（OP 工具）
   docs\\                 全部文档
   pack.example.json     配置模板
   mods.lock.json        客户端 mod 清单（初始为空）
+
+【打包三端发布包】（一条命令）
+  1) 先装一次 dev 依赖（含 PyInstaller，打包玩家端 exe 需要）：
+       .\\.venv\\Scripts\\python.exe -m pip install -e ".[dev]"
+  2) 生成三端包：
+       .\\.venv\\Scripts\\python.exe tools\\make_release.py --build
+     产物在 dist\\release\\ 下（A 端 / B 端 / C 端 三个 zip）。
+     只改了教程、没动 C 端代码时可省掉 --build。
 
 【包里没有的东西】
   你的 pack.local.json、私钥、server-mods\\、client-mods\\ —— 这些是你自己的数据，
@@ -169,6 +180,28 @@ def add_text(zf, arc_name, text):
 
 
 def main():
+    ap = argparse.ArgumentParser(
+        description="生成 A/B/C 三端发布包（解压即用）")
+    ap.add_argument("--build", action="store_true",
+                    help="先构建玩家端（等价于 mcmodsync package-client），再打三包 —— 一条命令出全部产物")
+    args = ap.parse_args()
+
+    if args.build:
+        print("=== 先构建玩家端：python -m mcmodsync package-client ===")
+        r = subprocess.run([sys.executable, "-m", "mcmodsync", "package-client"], cwd=REPO)
+        if r.returncode != 0:
+            print("player build failed (exit %d). "
+                  "if it says 'No module named PyInstaller', run: "
+                  'pip install -e ".[dev]"' % r.returncode)
+            return r.returncode
+        print()
+
+    src_check = os.path.join(REPO, "dist", "client-package")
+    if not os.path.isdir(src_check):
+        print("missing %s -- run 'mcmodsync package-client' first, "
+              "or use: python tools/make_release.py --build" % src_check)
+        return 1
+
     os.makedirs(OUT, exist_ok=True)
     # 清掉旧版本包，避免新旧版本混在同一个目录里
     for old in os.listdir(OUT):
@@ -210,7 +243,10 @@ def main():
         add_dir(zf, src, "_updater", "")   # rel 已含 "_updater/" 前缀
         zf.write(os.path.join(REPO, "docs", "C端使用教程.md"), "C端使用教程.md")
     print("C:", p, os.path.getsize(p), "bytes")
+    print()
+    print("三端发布包已生成到: %s" % OUT)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
