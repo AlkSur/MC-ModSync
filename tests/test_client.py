@@ -527,3 +527,47 @@ def test_auto_segments_thresholds() -> None:
     assert http_download._auto_segments(3 * 1024 * 1024) == 3
     assert http_download._auto_segments(100 * 1024 * 1024) == http_download.SEGMENT_MAX
     assert http_download._auto_segments(100 * 1024 * 1024, limit=2) == 2
+
+
+# --------------------------------------------------------------------------
+# 下载埋点（只上报，不改控制流）：字节数 / 开始 / 重新计数
+# --------------------------------------------------------------------------
+
+def test_download_instrumentation_reports_all_bytes(env) -> None:
+    """on_file_* 埋点：上报的总字节 == 文件大小；开始事件携带 path/source/size。"""
+    big = os.urandom(3 * 1024 * 1024)              # 3 MiB -> 多分片
+    env.cloud.publish("1.0.0", {"mods/big.jar": big})
+    got: list = []
+    starts: list = []
+    resets: list = []
+    dones: list = []
+    assert env.inst.sync(on_file_start=starts.append,
+                         on_file_bytes=lambda sha, n: got.append(n),
+                         on_file_reset=resets.append,
+                         on_file_done=dones.append) == 0
+    assert sum(got) == len(big)
+    assert starts and starts[0]["path"] == "mods/big.jar"
+    assert starts[0]["size"] == len(big) and starts[0]["source"] == ""
+    assert resets == [starts[0]["sha256"]]          # 单次尝试 -> 只上报一次重新计数
+    assert [e["path"] for e in dones] == ["mods/big.jar"]
+
+
+def test_download_instrumentation_reset_on_segment_fallback(env) -> None:
+    """分片回退单连接时再次上报重新计数（避免进度被上一轮字节撑满）。"""
+    env.cloud._srv.no_range = True
+    big = os.urandom(3 * 1024 * 1024)
+    env.cloud.publish("1.0.0", {"mods/big.jar": big})
+    starts: list = []
+    resets: list = []
+    assert env.inst.sync(on_file_start=starts.append,
+                         on_file_reset=resets.append) == 0
+    assert len(resets) == 2                        # 1 次尝试开始 + 1 次回退单连接
+    assert set(resets) == {starts[0]["sha256"]}
+
+
+def test_download_instrumentation_hooks_are_optional(env) -> None:
+    """不传任何埋点回调时行为与原来一致（业务逻辑未被渲染代码影响）。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A", "mods/b.jar": b"B"})
+    assert env.inst.sync() == 0
+    assert env.inst.mod_names() == ["a.jar", "b.jar"]
+

@@ -6,6 +6,12 @@ Spec section: 7.2 http_download.py, 9.2-9
 - per-file retry 3x with exponential backoff; full-file re-download, no resume
 - downloads into staging blob layout blobs/<xx>/<yy>/<sha256>
 - verifies sha256+size after each attempt; mismatch -> retry -> exit 5 when exhausted
+
+控制台埋点（**只上报、不做任何判定**，不参与下载/分片/重试/校验/备份的控制流）:
+    on_bytes(n)  读取循环每读到一个数据块即上报其字节数（文件级进度渲染用）
+    on_reset()   每次尝试开始时上报“重新计数”（重试 / 分片回退单连接时）
+    trace(msg)   技术性日志（HTTP 状态码、sha256、分片数）；缺省沿用 log。
+                 终端不展示哈希时由调用方传入“只写日志文件”的回调。
 """
 from __future__ import annotations
 
@@ -16,6 +22,9 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional
 
 EXIT_NETWORK = 5
+
+# 字节上报埋点：参数为“本次读取到的字节数”。为 None 时表示不渲染进度。
+ProgressFn = Optional[Callable[[int], None]]
 
 # 分片下载参数
 DEFAULT_TOTAL_SLOTS = 8              # 分片下载的总连接预算（所有文件共享）
@@ -40,7 +49,8 @@ def _build_opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(*handlers)
 
 
-def _fetch(url: str, dst: str, timeout: int = 60) -> int:
+def _fetch(url: str, dst: str, timeout: int = 60,
+           progress: ProgressFn = None) -> int:
     """下载 url -> dst；返回 HTTP 状态码。"""
     opener = _build_opener()
     req = urllib.request.Request(url, headers={"User-Agent": "MC-ModSync-C/2.0"})
@@ -50,6 +60,8 @@ def _fetch(url: str, dst: str, timeout: int = 60) -> int:
             if not block:
                 break
             f.write(block)
+            if progress:                     # 埋点：上报本块字节数（不改控制流）
+                progress(len(block))
         return int(resp.status)
 
 
@@ -63,7 +75,7 @@ def _auto_segments(size: int, limit: int = SEGMENT_MAX,
 
 
 def _fetch_segment(url: str, dst: str, start: int, end: int,
-                   timeout: int = 60) -> int:
+                   timeout: int = 60, progress: ProgressFn = None) -> int:
     """下载 [start, end] 字节区间到 dst；要求源站返回 206，否则视为不支持分片。"""
     opener = _build_opener()
     req = urllib.request.Request(url, headers={
@@ -79,6 +91,8 @@ def _fetch_segment(url: str, dst: str, start: int, end: int,
                 break
             f.write(block)
             got += len(block)
+            if progress:                     # 埋点：上报本块字节数（不改控制流）
+                progress(len(block))
     if status != 206:
         raise DownloadError(EXIT_NETWORK, "源站不支持分片（HTTP %d）" % status)
     want = end - start + 1
@@ -89,7 +103,9 @@ def _fetch_segment(url: str, dst: str, start: int, end: int,
 
 def _fetch_segmented(url: str, dst: str, size: int, segments: int,
                      segment_size: int = SEGMENT_SIZE, timeout: int = 60,
-                     log: Optional[Callable[[str], None]] = None) -> int:
+                     log: Optional[Callable[[str], None]] = None,
+                     progress: ProgressFn = None,
+                     trace: Optional[Callable[[str], None]] = None) -> int:
     """多分片并发下载后按序合并到 dst。任一分片失败即抛异常（由上层回退单连接）。"""
     seg_size = max(segment_size, (size + segments - 1) // segments)
     ranges: List = []
@@ -106,7 +122,9 @@ def _fetch_segmented(url: str, dst: str, size: int, segments: int,
             for i, (s, e) in enumerate(ranges):
                 p = "%s.p%02d" % (dst, i)
                 parts.append(p)
-                futures.append(pool.submit(_fetch_segment, url, p, s, e, timeout))
+                # 分片各自上报字节（渲染端负责加锁累加，这里只是埋点透传）
+                futures.append(pool.submit(_fetch_segment, url, p, s, e, timeout,
+                                           progress))
             for f in futures:
                 f.result()                      # 任一分片异常在此抛出
         with open(dst, "wb") as out:
@@ -117,9 +135,10 @@ def _fetch_segmented(url: str, dst: str, size: int, segments: int,
                         if not block:
                             break
                         out.write(block)
-        if log:
-            log("分片下载完成: %d 片 × 约 %.1f MiB"
-                % (len(ranges), seg_size / 1048576.0))
+        detail = trace or log                   # 技术细节：默认进日志文件
+        if detail:
+            detail("分片下载完成: %d 片 × 约 %.1f MiB"
+                   % (len(ranges), seg_size / 1048576.0))
         return 206
     finally:
         for p in parts:
@@ -133,12 +152,20 @@ def _fetch_segmented(url: str, dst: str, size: int, segments: int,
 def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
                  verify_fn: Callable[[str], bool], retries: int = 3,
                  log: Optional[Callable[[str], None]] = None,
-                 segments: int = 0) -> None:
+                 segments: int = 0,
+                 on_bytes: Optional[Callable[[int], None]] = None,
+                 on_reset: Optional[Callable[[], None]] = None,
+                 trace: Optional[Callable[[str], None]] = None) -> None:
     """Download one blob with retries; verify via verify_fn(dst) on final path.
 
     segments > 1 时优先多分片并发下载（大文件提速显著）；分片失败自动回退单连接，
     两条路径下载的都写入同一个 tmp，校验与原子落位逻辑完全一致。
+
+    on_bytes / on_reset 仅为**控制台渲染埋点**：上报已读字节与“重新计数”信号，
+    不参与重试判定、不参与校验、不改变任何控制流。trace 用于承载含 sha256 的
+    技术性日志（终端不展示哈希时，由调用方传“只写日志文件”的回调）。
     """
+    detail = trace or log
     d = os.path.dirname(dst)
     os.makedirs(d, exist_ok=True)
     tmp = os.path.join(d, ".%s.tmp-%d" % (os.path.basename(dst), os.getpid()))
@@ -151,27 +178,31 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
+            if on_reset:                        # 埋点：本次尝试从 0 重新计数
+                on_reset()
             status = 0
             if use_segments > 1:
                 try:
                     status = _fetch_segmented(url, tmp, expected_size, use_segments,
-                                              log=log)
+                                              log=log, progress=on_bytes, trace=trace)
                 except Exception as e:          # noqa: BLE001  回退单连接
                     if log:
                         log("分片下载未成功，改用单连接: %s" % e)
                     if os.path.exists(tmp):
                         os.remove(tmp)
-                    status = _fetch(url, tmp)
+                    if on_reset:                # 埋点：回退单连接后重新计数
+                        on_reset()
+                    status = _fetch(url, tmp, progress=on_bytes)
             else:
-                status = _fetch(url, tmp)
+                status = _fetch(url, tmp, progress=on_bytes)
             # 先校验临时文件，通过后才原子落位；失败不污染 dst。
             if not verify_fn(tmp):
                 raise DownloadError(5, "下载内容校验失败: %s" % url)
             os.replace(tmp, dst)
-            if log:
-                log("HTTP %d 已下载 %s (sha256=%s, size=%d)"
-                    % (status, os.path.basename(dst), expected_sha or "-",
-                       int(os.path.getsize(dst))))
+            if detail:
+                detail("HTTP %d 已下载 %s (sha256=%s, size=%d)"
+                       % (status, os.path.basename(dst), expected_sha or "-",
+                          int(os.path.getsize(dst))))
             return
         except Exception as e:
             last_err = e
@@ -204,7 +235,10 @@ def _verify_file(path: str, expected_sha: str, expected_size: int) -> bool:
 
 def download(url: str, dst: str, expected_sha: str, expected_size: int,
              retries: int = 3, log: Optional[Callable[[str], None]] = None,
-             segments: int = 0) -> None:
+             segments: int = 0,
+             on_bytes: Optional[Callable[[int], None]] = None,
+             on_reset: Optional[Callable[[], None]] = None,
+             trace: Optional[Callable[[str], None]] = None) -> None:
     """契约入口（[6]/[T-20]）: 下载单文件 -> 校验 sha256 与 size -> 原子落位。
 
     失败（网络 / HTTP 错误 / 校验不符）整文件重试，指数退避；耗尽后抛
@@ -213,17 +247,24 @@ def download(url: str, dst: str, expected_sha: str, expected_size: int,
     """
     download_one(url, dst, expected_sha, expected_size,
                  lambda p: _verify_file(p, expected_sha, expected_size),
-                 retries=retries, log=log, segments=segments)
+                 retries=retries, log=log, segments=segments,
+                 on_bytes=on_bytes, on_reset=on_reset, trace=trace)
 
 
 def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
                    concurrency: int = 4, retries: int = 3,
                    log: Optional[Callable[[str], None]] = None,
-                   on_done: Optional[Callable[[Dict], None]] = None) -> int:
+                   on_done: Optional[Callable[[Dict], None]] = None,
+                   on_start: Optional[Callable[[Dict], None]] = None,
+                   on_bytes: Optional[Callable[[str, int], None]] = None,
+                   on_reset: Optional[Callable[[str], None]] = None,
+                   trace: Optional[Callable[[str], None]] = None) -> int:
     """Download all blobs into staging; returns total downloaded bytes.
 
     tasks: list of {path, sha256, size} entries that need downloading.
     on_done: 每个 blob 落位后回调（供 C 端渲染进度）。
+    on_start(entry) / on_bytes(sha, n) / on_reset(sha): 文件级进度渲染埋点，
+        只上报不判定；on_bytes 可能在多个分片线程中并发调用，渲染端需自行加锁。
     """
     if not tasks:
         return 0
@@ -254,8 +295,13 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
                     size += len(block)
             return h.hexdigest() == sha and size == expected["size"]
 
+        if on_start:                             # 埋点：文件开始下载（渲染第 1 行）
+            on_start(expected)
         download_one(url, dst, sha, expected["size"], _verify, retries=retries,
-                     log=log, segments=per_file)
+                     log=log, segments=per_file,
+                     on_bytes=(lambda n: on_bytes(sha, n)) if on_bytes else None,
+                     on_reset=(lambda: on_reset(sha)) if on_reset else None,
+                     trace=trace)
         if on_done:
             on_done(expected)
         return expected

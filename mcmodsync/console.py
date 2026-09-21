@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from typing import Optional, TextIO
 
@@ -81,6 +82,44 @@ def supports_color(stream: Optional[TextIO] = None) -> bool:
     if os.name == "nt":
         _enable_windows_vt()
     return True
+
+
+def enable_vt() -> bool:
+    """开启 ANSI 转义解析并返回“本进程能否安全输出 ANSI”。
+
+    - 非 Windows 平台终端默认支持，返回 True；
+    - Windows 上主动 SetConsoleMode 打开 VT，失败（老 conhost）返回 False，
+      调用方应据此退回“空格补残影”的降级渲染。
+
+    注意：这与着色开关无关，进度条清行（\\x1b[K）也依赖它，因此独立暴露。
+    """
+    if os.name != "nt":
+        return True
+    return _enable_windows_vt()
+
+
+def is_interactive(stream: Optional[TextIO] = None) -> bool:
+    """输出是否连到真实终端（管道 / 重定向 / 日志文件时为假）。"""
+    s = stream if stream is not None else sys.stdout
+    try:
+        return bool(s.isatty())
+    except Exception:
+        return False
+
+
+# --------------------------------------------------------------------------
+# 终端哈希屏蔽（需求：控制台全程不展示 sha256，哈希细节只写日志文件）
+# --------------------------------------------------------------------------
+
+_HASH_KV_RE = re.compile(r"sha256([:=\s]+)[0-9a-fA-F]{8,}")
+_HEX64_RE = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
+_HASH_PLACEHOLDER = "见日志"
+
+
+def strip_hashes(text: str) -> str:
+    """把文本中的 sha256 值替换为占位符（仅用于终端；日志文件保留原文）。"""
+    out = _HASH_KV_RE.sub(r"sha256\1" + _HASH_PLACEHOLDER, text)
+    return _HEX64_RE.sub(_HASH_PLACEHOLDER, out)
 
 
 def bold(text: str) -> str:

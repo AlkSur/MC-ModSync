@@ -503,7 +503,21 @@ def report_ssl_failure(err: Exception, log: Callable[[str], None]) -> bool:
 def sync(target: str, strict: bool = False, no_downgrade: bool = False,
          keep_backups: int = DEFAULT_KEEP_BACKUPS, log: Callable[[str], None] = print,
          game_running_check: Optional[Callable[[], bool]] = None,
-         progress: Optional[Callable[[int, int, int, int], None]] = None) -> int:
+         progress: Optional[Callable[[int, int, int, int], None]] = None,
+         on_file_start: Optional[Callable[[dict], None]] = None,
+         on_file_bytes: Optional[Callable[[str, int], None]] = None,
+         on_file_reset: Optional[Callable[[str], None]] = None,
+         on_file_done: Optional[Callable[[dict], None]] = None,
+         trace: Optional[Callable[[str], None]] = None) -> int:
+    """同步一次。
+
+    progress / on_file_* / trace 均为**控制台渲染钩子**（可为 None）：
+      progress(已完成文件数, 总文件数, 已完成字节, 总字节)   —— 聚合进度
+      on_file_start(entry) / on_file_bytes(sha, n)          —— 文件级双行进度
+      on_file_reset(sha) / on_file_done(entry)              —— 重试与完成
+      trace(msg)                                            —— 只写日志文件的技术细节
+    这些钩子只读、不参与任何判定：下载 / 分片 / 重试 / 校验 / 备份逻辑不受影响。
+    """
     target = os.path.abspath(target)
     os.makedirs(updater_dir(target), exist_ok=True)
     lock = locking.FileLock(lock_path(target))
@@ -514,7 +528,8 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
         return EXIT_LOCK
     try:
         return _sync_locked(target, strict, no_downgrade, keep_backups, log,
-                            game_running_check, progress)
+                            game_running_check, progress, on_file_start,
+                            on_file_bytes, on_file_reset, on_file_done, trace)
     except ClientError as e:
         log("错误(%d): %s" % (e.exit_code, e))
         return int(e.exit_code)
@@ -545,7 +560,12 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
 def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: int,
                  log: Callable[[str], None],
                  game_running_check: Optional[Callable[[], bool]],
-                 progress: Optional[Callable[[int, int, int, int], None]] = None) -> int:
+                 progress: Optional[Callable[[int, int, int, int], None]] = None,
+                 on_file_start: Optional[Callable[[dict], None]] = None,
+                 on_file_bytes: Optional[Callable[[str, int], None]] = None,
+                 on_file_reset: Optional[Callable[[str], None]] = None,
+                 on_file_done: Optional[Callable[[dict], None]] = None,
+                 trace: Optional[Callable[[str], None]] = None) -> int:
     # 步骤2 配置
     cfg = load_config(target)                            # 缺字段 -> 1
     # 步骤3 游戏运行检测
@@ -625,6 +645,11 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     skipped = len(plan["desired"]) - len(plan["need"])
     if skipped:
         log("决策: 跳过 %d 个（磁盘哈希已与清单一致）" % skipped)
+    # 渲染层：本地哈希已与清单一致的文件逐行精简为「跳过：<文件名>」（不打印哈希）
+    need_paths = set(e["path"] for e in plan["need"])
+    for p in sorted(plan["desired"]):
+        if p not in need_paths:
+            log("跳过：%s" % os.path.basename(p))
 
     # 步骤10 路径安全 + 磁盘预检（先于任何写操作）
     check_paths(target, sorted(set(list(plan["desired"].keys())
@@ -656,12 +681,19 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
         def _on_done(entry: dict) -> None:
             tick["files"] += 1
             tick["bytes"] += int(entry["size"])
+            if on_file_done:                     # 渲染：文件进度打满 100%
+                on_file_done(entry)
             _emit()
 
+        # source 仅用于控制台“来源”标识（清单缺省 -> 对象存储）；不影响下载地址
         http_download.download_blobs([{"path": e["path"], "sha256": e["sha256"],
-                                       "size": int(e["size"])} for e in downloads],
+                                       "size": int(e["size"]),
+                                       "source": e.get("source") or ""}
+                                      for e in downloads],
                                      base, staging, concurrency=4, retries=3, log=log,
-                                     on_done=_on_done)
+                                     on_done=_on_done, on_start=on_file_start,
+                                     on_bytes=on_file_bytes, on_reset=on_file_reset,
+                                     trace=trace)
     got_bytes = download_bytes
 
     # 步骤11 备份
