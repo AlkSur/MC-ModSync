@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from charness import PACK_ID, Cloud, Instance, make_keys
 
-from mcmodsync import client, hashing, locking
+from mcmodsync import client, hashing, http_download, locking
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -445,3 +445,85 @@ def test_doctor_ok_then_bad_config(env) -> None:
     with open(client.config_path(env.inst.root), "w", encoding="utf-8") as f:
         f.write(json.dumps({"schemaVersion": 1, "packId": PACK_ID}))
     assert env.inst.doctor() == 1
+
+
+# --------------------------------------------------------------------------
+# HTTPS 证书失败诊断（玩家机器时间/根证书问题）
+# --------------------------------------------------------------------------
+
+def test_report_ssl_failure_diagnoses_expired_cert() -> None:
+    import ssl
+    import urllib.error
+
+    err = urllib.error.URLError(
+        ssl.SSLCertVerificationError(1, "certificate has expired"))
+    err.filename = "https://cdn.example.invalid/packs/x/manifest.json"
+    lines = []
+    hit = client.report_ssl_failure(err, lines.append)
+    assert hit is True
+    text = "\n".join(lines)
+    assert "HTTPS 证书校验失败" in text
+    assert "本机时间" in text
+    assert "排查顺序" in text and "根证书" in text
+    assert "浏览器" in text
+
+
+def test_report_ssl_failure_ignores_plain_network_error() -> None:
+    import urllib.error
+
+    err = urllib.error.URLError(OSError("connection refused"))
+    lines = []
+    assert client.report_ssl_failure(err, lines.append) is False
+    assert lines == []
+
+
+def test_san_covers_matches_wildcard_and_detects_interception() -> None:
+    good = {"subjectAltName": (("DNS", "*.cdn.7caiyun.com"),)}
+    assert client._san_covers(good, "server-mods-u0demo00.cdn.7caiyun.com") is True
+    # 被安全软件/代理拦截时，出示的证书是发给别的主机的
+    fake = {"subjectAltName": (("DNS", "*.antivirus-vendor.example"),)}
+    assert client._san_covers(fake, "server-mods-u0demo00.cdn.7caiyun.com") is False
+    assert client._san_covers({}, "cdn.example.com") is False
+
+
+def test_flatten_name_reads_subject_fields() -> None:
+    seq = ((("commonName", "*.cdn.7caiyun.com"),),
+           (("organizationName", "Example"),))
+    text = client._flatten_name(seq)
+    assert "commonName=*.cdn.7caiyun.com" in text
+    assert "organizationName=Example" in text
+
+
+def test_ssl_cert_info_skips_unknown_host() -> None:
+    assert client._ssl_cert_info("") == {}
+    assert client._ssl_cert_info("?") == {}
+
+
+# --------------------------------------------------------------------------
+# 大文件多分片并发下载
+# --------------------------------------------------------------------------
+
+def test_sync_segmented_download_large_file(env) -> None:
+    """≥2MB 的文件走多分片并发下载，合并后内容必须与清单一致。"""
+    big = os.urandom(3 * 1024 * 1024)          # 3 MiB -> 3 片
+    env.cloud.publish("1.0.0", {"mods/big.jar": big})
+    assert env.inst.sync() == 0
+    assert env.inst.mod_bytes("big.jar") == big
+
+
+def test_sync_falls_back_when_range_unsupported(env) -> None:
+    """源站不支持 Range（返回 200）时应回退单连接，下载仍然成功。"""
+    env.cloud._srv.no_range = True             # 模拟不支持分片的源站
+    big = os.urandom(3 * 1024 * 1024)
+    env.cloud.publish("1.0.0", {"mods/big.jar": big})
+    assert env.inst.sync() == 0
+    assert env.inst.mod_bytes("big.jar") == big
+
+
+def test_auto_segments_thresholds() -> None:
+    """分片策略：小于 2MB 不分片；大文件按约 1MB 切片且不超过上限。"""
+    assert http_download._auto_segments(1024) == 1
+    assert http_download._auto_segments(2 * 1024 * 1024 - 1) == 1
+    assert http_download._auto_segments(3 * 1024 * 1024) == 3
+    assert http_download._auto_segments(100 * 1024 * 1024) == http_download.SEGMENT_MAX
+    assert http_download._auto_segments(100 * 1024 * 1024, limit=2) == 2

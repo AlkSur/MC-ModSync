@@ -188,11 +188,17 @@ def fetch_json(url: str, cache_bust: bool = False, timeout: int = 30,
         url = "%s%st=%d" % (url, sep, int(time.time()))
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
                                               "Cache-Control": "no-cache"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        if log:
-            log("HTTP %d %s" % (resp.status, url))
-        return data
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if log:
+                log("HTTP %d %s" % (resp.status, url))
+            return data
+    except urllib.error.URLError as e:
+        # 补上 URL：诊断 HTTPS 证书失败时需要知道连的是哪台主机
+        if not getattr(e, "filename", ""):
+            e.filename = url
+        raise
 
 
 def _resolve_url(base_url: str, rel: str) -> str:
@@ -389,6 +395,108 @@ def _prune_backups(target: str, keep: int, log: Callable[[str], None]) -> None:
 
 
 # --------------------------------------------------------------------------
+# 网络失败诊断（HTTPS 证书问题在玩家机器上最常见，输出可自证的信息）
+# --------------------------------------------------------------------------
+
+def _flatten_name(seq) -> str:
+    """把 _test_decode_cert 的 subject/issuer 嵌套元组拍平成 "k=v, k=v"。"""
+    out = []
+    for rdn in seq or ():
+        for k, v in rdn:
+            out.append("%s=%s" % (k, v))
+    return ", ".join(out)
+
+
+def _san_covers(info: dict, host: str) -> bool:
+    """证书的 subjectAltName 是否覆盖 host（判断是不是发给我们这台主机的证书）。"""
+    import fnmatch
+    for typ, val in info.get("subjectAltName") or ():
+        if typ == "DNS" and (val == host or fnmatch.fnmatch(host, val)):
+            return True
+    return False
+
+
+def _ssl_cert_info(host: str, port: int = 443) -> dict:
+    """取该主机实际出示的证书信息（不校验，仅用于诊断）。失败返回 {}。"""
+    import socket
+    import ssl as _ssl
+    import tempfile
+    if not host or host == "?":
+        return {}
+    try:
+        ctx = _ssl._create_unverified_context()
+        with socket.create_connection((host, port), timeout=8) as s:
+            with ctx.wrap_socket(s, server_hostname=host) as ss:
+                pem = _ssl.DER_cert_to_PEM_cert(ss.getpeercert(binary_form=True))
+        fd, path = tempfile.mkstemp(suffix=".pem")
+        try:
+            with os.fdopen(fd, "w", encoding="ascii") as f:
+                f.write(pem)
+            return _ssl._ssl._test_decode_cert(path)     # CPython 内置解析
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
+def _looks_like_ssl_failure(text: str) -> bool:
+    up = text.upper()
+    return ("CERTIFICATE_VERIFY_FAILED" in up or "SSLCERTVERIFICATIONERROR" in up
+            or "SSL: " in up or "SSLEOFERROR" in up)
+
+
+def report_ssl_failure(err: Exception, log: Callable[[str], None]) -> bool:
+    """若 err 属于 HTTPS 证书类失败，打印可自检的诊断信息；返回是否命中。"""
+    import re
+    text = str(err)
+    typed_ssl = False
+    try:
+        import ssl as _ssl
+        typed_ssl = isinstance(getattr(err, "reason", None), _ssl.SSLError)
+    except Exception:                                    # noqa: BLE001
+        pass
+    if not typed_ssl and not _looks_like_ssl_failure(text):
+        return False
+    url = str(getattr(err, "filename", "") or "")
+    if not url:
+        m = re.search(r"https?://[^\s)]+", text)
+        url = m.group(0) if m else ""
+    host = urllib.parse.urlsplit(url).hostname or "?"
+    log("无法建立安全连接（HTTPS 证书校验失败）")
+    log("    目标主机: %s" % host)
+    log("    失败原因: %s" % text)
+    if host == "?":
+        log("    提示: 未能识别目标主机，请把本窗口内容发给服主")
+    log("    本机时间: %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    info = _ssl_cert_info(host)
+    if info:
+        subj = _flatten_name(info.get("subject"))
+        iss = _flatten_name(info.get("issuer"))
+        log("    实际收到的证书: %s" % (subj or "?"))
+        log("    该证书签发者  : %s" % (iss or "?"))
+        log("    该证书有效期  : %s ~ %s"
+            % (info.get("notBefore") or "?", info.get("notAfter") or "?"))
+        if host != "?" and not _san_covers(info, host):
+            log("    [注意] 这张证书不是颁发给 %s 的 —— 连接很可能被安全软件或"
+                "公司代理做了 HTTPS 拦截" % host)
+        else:
+            log("    若本机时间不在上面的有效期内，说明系统时间不准确"
+                "（请开启自动设置时间后重试）")
+    else:
+        log("    无法获取服务器证书（网络不通，或 HTTPS 被安全软件/代理拦截）")
+    log("    排查顺序: 1) 核对本机时间是否准确（时间偏差会让证书被判定为过期）；"
+        "2) 运行 Windows Update 更新系统根证书；"
+        "3) 暂时关闭杀毒软件/代理的 HTTPS 扫描后重试")
+    if url:
+        log("    自测方法: 用浏览器打开 %s" % url)
+        log("              若浏览器也报证书错误，说明是本机环境问题，与更新器无关")
+    return True
+
+
+# --------------------------------------------------------------------------
 # sync（步骤1-15）
 # --------------------------------------------------------------------------
 
@@ -415,9 +523,17 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
         return EXIT_UNSAFE_PATH
     except http_download.DownloadError as e:
         log("错误(%d): %s" % (e.exit_code, e))
+        report_ssl_failure(e, log)          # 证书类失败给出排查指引
         return int(e.exit_code)
     except urllib.error.HTTPError as e:
         log("错误(5): HTTP %s: %s" % (e.code, e.url))
+        return EXIT_NETWORK
+    except urllib.error.URLError as e:
+        # URLError 可能是 SSL 证书失败（玩家机器时间不准/根证书过旧/HTTPS 拦截）
+        if not report_ssl_failure(e, log):
+            log("错误(5): 网络请求失败: %s" % e)
+        else:
+            log("错误(5): 网络请求失败（详见上方排查指引）")
         return EXIT_NETWORK
     except Exception as e:  # noqa: BLE001
         log("错误(1): %s: %s" % (type(e).__name__, e))

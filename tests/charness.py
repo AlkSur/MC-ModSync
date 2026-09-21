@@ -37,6 +37,24 @@ class _Handler(BaseHTTPRequestHandler):
             return
         with open(full, "rb") as f:
             body = f.read()
+
+        # Range 支持（供 C 端多分片下载测试）；NO_RANGE 开关模拟不支持分片的源站
+        rng = self.headers.get("Range") or ""
+        if rng.startswith("bytes=") and not getattr(self.server, "no_range", False):
+            spec = rng[len("bytes="):].split("-", 1)
+            start = int(spec[0]) if spec[0] else 0
+            end = int(spec[1]) if len(spec) > 1 and spec[1] else len(body) - 1
+            end = min(end, len(body) - 1)
+            part = body[start:end + 1]
+            self.send_response(206)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Range",
+                             "bytes %d-%d/%d" % (start, end, len(body)))
+            self.send_header("Content-Length", str(len(part)))
+            self.end_headers()
+            self.wfile.write(part)
+            return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
