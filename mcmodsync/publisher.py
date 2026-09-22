@@ -16,11 +16,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import canonicaljson, hashing, signing
+from . import canonicaljson, hashing, signing, source_resolve
 
 POINTER_CC = "no-cache, no-store, must-revalidate"
 MANIFEST_CC = "public, max-age=300"
 BLOB_CC = "public, max-age=31536000, immutable"
+
+# 下载源索引（C 端多源下载用）：与指针同级、覆盖式更新，所以只能用短缓存。
+SOURCES_KEY = "sources.json"
+SOURCES_CC = "public, max-age=300"
+SOURCES_SCHEMA_VERSION = 1
 
 SUPPORTED_SCHEMA_VERSION = 1
 
@@ -152,6 +157,128 @@ def build_pointer(pack_id: str, version: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# 下载源索引 sources.json（C 端多源下载的"从哪下"）
+# ---------------------------------------------------------------------------
+
+def build_sources_index(pack_id: str, version: str, files: List[dict],
+                        prev: Optional[dict], resolved: Dict[str, dict],
+                        created_at: Optional[str] = None) -> dict:
+    """按当前清单裁剪并合并来源 -> sources.json 对象（未签名）。
+
+    - 只保留 sha256 出现在本次 files 里的条目：删除的 mod、被替换掉的旧版本
+      自动从索引中消失，不需要额外的删除逻辑；
+    - 本次新解析的优先，未变更条目按 sha256 从上一版索引继承；
+    - 继承来的条目也要过一遍白名单（旧索引可能来自更宽松的实现）。
+    """
+    before = ((prev or {}).get("sources") or {})
+    if not isinstance(before, dict):
+        before = {}
+    out: Dict[str, dict] = {}
+    for f in files:
+        sha = str(f.get("sha256") or "").lower()
+        if not sha:
+            continue
+        item = resolved.get(sha) or before.get(sha)
+        if not isinstance(item, dict):
+            continue
+        src = str(item.get("source") or "").strip().lower()
+        url = str(item.get("downloadUrl") or "").strip()
+        if src not in source_resolve.ALLOWED_SOURCES:
+            continue
+        if not source_resolve.is_allowed_url(url):
+            continue
+        entry = {
+            "source": src,
+            "fileName": str(item.get("fileName")
+                            or os.path.basename(str(f.get("path") or ""))),
+            "size": int(item.get("size") or f.get("size") or 0),
+            "downloadUrl": url,
+        }
+        slug = str(item.get("projectSlug") or "")
+        ver = str(item.get("resolvedVersion") or "")
+        if slug:
+            entry["projectSlug"] = slug
+        if ver:
+            entry["resolvedVersion"] = ver
+        out[sha] = entry
+    return {
+        "schemaVersion": SOURCES_SCHEMA_VERSION,
+        "packId": pack_id,
+        "generatedForVersion": version or "",
+        "updatedAt": created_at or datetime.now().astimezone().isoformat(timespec="seconds"),
+        "sources": {k: out[k] for k in sorted(out)},
+    }
+
+
+def fetch_sources_index(manifest_url: str, log: Callable[[str], None] = print) -> Optional[dict]:
+    """从公网读上一版 sources.json 作合并基准；不存在/不可达一律 None（视为首次）。"""
+    if not manifest_url:
+        return None
+    url = manifest_url.rstrip("/").rsplit("/", 1)[0] + "/" + SOURCES_KEY
+    try:
+        obj = _http_get_json(url, timeout=15)
+    except PublishError as e:
+        log("上一版来源索引不可用（视为首次生成）: %s" % e)
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def read_store_sources(store, log: Callable[[str], None] = print) -> Optional[dict]:
+    """从对象存储读上一版 sources.json 作合并基准（A 端持 AK/SK，比走 CDN 更可靠）。"""
+    try:
+        if not store.head(SOURCES_KEY):
+            return None
+        obj = json.loads(store.get_text(SOURCES_KEY))
+    except Exception as e:  # noqa: BLE001  基准缺失不该阻断发布
+        log("读取线上来源索引失败（视为首次生成）: %s" % e)
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _published_version(manifest_url: str, log: Callable[[str], None] = print) -> str:
+    """只读探测线上当前版本号；失败返回空串（仅用于索引里的可读标注）。"""
+    if not manifest_url:
+        return ""
+    try:
+        pointer = _http_get_json(manifest_url, timeout=15)
+    except PublishError as e:
+        log("读取线上版本号失败（不影响本次操作）: %s" % e)
+        return ""
+    return str(pointer.get("latest") or "")
+
+
+def resolve_index_for_publish(cfg, store, version: str, files: List[dict],
+                              log: Callable[[str], None] = print,
+                              backfill: bool = False, no_cf: bool = False,
+                              lock_path: str = "mods.lock.json") -> Tuple[Optional[dict], dict]:
+    """生成 sources.json 对象（未签名）；失败返回 (None, {}) 由调用方降级。
+
+    只对「索引里还没有的文件」联网反查（新增/替换天然落在其中），
+    backfill=True 时对全部文件重查（保底修复用）。
+    """
+    client_cfg = cfg["client"]
+    source_dir = client_cfg["sourceModsDir"]
+    prev = read_store_sources(store, log)
+    known = set(((prev or {}).get("sources") or {}).keys())
+    todo = [f for f in files
+            if backfill or str(f.get("sha256") or "").lower() not in known]
+    lock_index = source_resolve.load_lock_index(lock_path)
+    resolved: Dict[str, dict] = {}
+    stats = {"lock": 0, "modrinth": 0, "curseforge": 0, "miss": 0,
+             "rejected": 0, "skipped": 0, "total": len(files)}
+    if todo:
+        resolved, stats = source_resolve.resolve_sources(
+            source_dir, todo, lock_index, cfg, log, no_cf=no_cf)
+    index_obj = build_sources_index(cfg["packId"], version, files, prev, resolved)
+    log("来源索引: 共 %d 条，覆盖 %d/%d 个文件（本次反查 %d 个：lock %d / Modrinth %d / "
+        "CurseForge %d / 未命中 %d / 白名单剔除 %d；继承 %d）"
+        % (len(index_obj["sources"]), len(index_obj["sources"]), len(files), len(todo),
+           stats["lock"], stats["modrinth"], stats["curseforge"], stats["miss"],
+           stats["rejected"], len(files) - len(todo)))
+    return index_obj, stats
+
+
 def verify_manifest(obj: dict, public_key_b64: str) -> bool:
     return canonicaljson.verify(obj, public_key_b64)
 
@@ -220,7 +347,9 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
                    server_files: Optional[List[dict]] = None,
                    check_server_client: bool = False,
                    local_manifest: Optional[dict] = None,
-                   lock_path: str = "mods.lock.json", gc: bool = True) -> int:
+                   lock_path: str = "mods.lock.json", gc: bool = True,
+                   resolve: bool = True, backfill: bool = False,
+                   no_cf: bool = False) -> int:
     pack_id = cfg["packId"]
     client_cfg = cfg["client"]
     mods_dir = cfg["server"].get("modsDir", "mods")
@@ -301,6 +430,19 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
                 raise PublishError(EXIT_GENERIC, "交集检查阻断: " + msg)
             log("警告: " + msg)
 
+    # 步骤4.6 下载源索引（C 端多源下载用；纯优化层，失败不影响发布）
+    index_obj: Optional[dict] = None
+    if resolve:
+        try:
+            index_obj, _st = resolve_index_for_publish(
+                cfg, store, version, files, log,
+                backfill=backfill, no_cf=no_cf, lock_path=lock_path)
+        except Exception as e:  # noqa: BLE001  索引只是加速层，绝不阻断发布
+            log("警告: 来源索引生成失败（不影响本次发布，玩家将全部回落对象存储）: %s" % e)
+            index_obj = None
+    else:
+        log("已指定 --no-resolve：跳过来源索引（线上旧索引保持不变）")
+
     # 步骤5 blob 上传（HEAD 存在则跳过）
     needed = [new_files[p] for p in added + replaced]
     to_upload = []
@@ -313,6 +455,11 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
     if dry_run:
         total = sum(f["size"] for _k, f in to_upload)
         log("[dry-run] 将上传版本清单 manifests/%s.json、指针 manifest.json" % version)
+        if index_obj is not None:
+            log("[dry-run] 将覆盖上传来源索引 sources.json（%d 条）"
+                % len(index_obj["sources"]))
+        else:
+            log("[dry-run] 不上传来源索引（--no-resolve 或生成失败）")
         log("[dry-run] 将上传 blob %d 个（%d 字节），已存在跳过 %d 个"
             % (len(to_upload), total, len(needed) - len(to_upload)))
         log("[dry-run] 未执行任何写操作")
@@ -345,10 +492,22 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
     manifest_obj = build_version_manifest(pack_id, version, notes, files, delete)
     signed = canonicaljson.sign(manifest_obj, pem)
 
-    # 步骤7 先清单、后指针（顺序硬约束）
+    # 步骤7 先清单、再索引、最后指针（顺序硬约束）
     store.put_bytes("manifests/%s.json" % version,
                     json.dumps(signed, ensure_ascii=False).encode("utf-8"), MANIFEST_CC)
     log("已上传版本清单: manifests/%s.json（%s）" % (version, MANIFEST_CC))
+
+    # 步骤7.5 下载源索引（在指针之前写入，保证"新指针可见时索引已就位"）
+    if index_obj is not None:
+        try:
+            signed_index = canonicaljson.sign(index_obj, pem)
+            store.put_bytes(SOURCES_KEY,
+                            json.dumps(signed_index, ensure_ascii=False).encode("utf-8"),
+                            SOURCES_CC)
+            log("已上传来源索引: %s（%s，%d 条）"
+                % (SOURCES_KEY, SOURCES_CC, len(index_obj["sources"])))
+        except Exception as e:  # noqa: BLE001  见下：失败不阻断
+            log("警告: sources.json 上传失败（不影响本次发布，玩家将回落对象存储）: %s" % e)
 
     pointer = canonicaljson.sign(build_pointer(pack_id, version), pem)
     store.put_bytes("manifest.json",
@@ -371,4 +530,56 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
 
     log("publish-client 完成: version=%s files=%d 本版删除=%d 清单累计删除=%d"
         % (version, len(files), len(newly_deleted), len(delete)))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# 保底：全量重建来源索引（独立命令，不进日常发布流程）
+# ---------------------------------------------------------------------------
+
+def rebuild_sources(cfg, store, log: Callable[[str], None] = print,
+                    dry_run: bool = False, lock_path: str = "mods.lock.json",
+                    no_cf: bool = False) -> int:
+    """对 client-mods 的**全部** mod 重新反查，整份重建并覆盖上传 sources.json。
+
+    用途：索引损坏、大面积失效、平台侧换 CDN 域名等需要"彻底重来"的场合。
+    与 publish-client 无关，不修改任何清单与 blob，只覆盖 sources.json 一个对象。
+    """
+    pack_id = cfg["packId"]
+    client_cfg = cfg["client"]
+    mods_dir = cfg["server"].get("modsDir", "mods")
+    source_dir = client_cfg["sourceModsDir"]
+
+    files = scan_client_mods(source_dir, mods_dir)
+    if not files:
+        raise PublishError(EXIT_GENERIC, "客户端源目录无 *.jar: %s" % source_dir)
+    version = _published_version(client_cfg.get("manifestUrl") or "", log)
+    log("全量重建来源索引: %d 个 jar（线上版本 %s）" % (len(files), version or "-"))
+
+    lock_index = source_resolve.load_lock_index(lock_path)
+    resolved, stats = source_resolve.resolve_sources(source_dir, files, lock_index, cfg, log,
+                                                     no_cf=no_cf)
+    index_obj = build_sources_index(pack_id, version, files, None, resolved)
+    log("反查结果: lock %d / Modrinth %d / CurseForge %d / 未命中 %d / 白名单剔除 %d / 跳过 %d"
+        % (stats["lock"], stats["modrinth"], stats["curseforge"], stats["miss"],
+           stats["rejected"], stats["skipped"]))
+    log("索引条目: %d / %d 个文件（未命中的走对象存储）"
+        % (len(index_obj["sources"]), len(files)))
+    missing = [f["path"] for f in files
+               if str(f.get("sha256") or "").lower() not in index_obj["sources"]]
+    for p in missing[:20]:
+        log("  无平台直链: %s" % p)
+    if len(missing) > 20:
+        log("  ...（另有 %d 个，完整清单见日志）" % (len(missing) - 20))
+
+    if dry_run:
+        log("[dry-run] 未执行任何写操作（%s 保持不变）" % SOURCES_KEY)
+        return EXIT_OK
+
+    pem = _load_private_key_pem(cfg)
+    signed = canonicaljson.sign(index_obj, pem)
+    store.put_bytes(SOURCES_KEY, json.dumps(signed, ensure_ascii=False).encode("utf-8"),
+                    SOURCES_CC)
+    log("已覆盖上传来源索引: %s（%s，%d 条）"
+        % (SOURCES_KEY, SOURCES_CC, len(index_obj["sources"])))
     return EXIT_OK

@@ -45,7 +45,7 @@ scp mcmodsync-b.py root@你的服务器:/www/mcmodsync-b.py
 python tools\make_release.py
 ```
 
-生成 `dist\release\MC-ModSync-B端-服务端脚本-v2.0.0.zip`，解压即用。
+生成 `dist\release\MC-ModSync-B端-服务端脚本-v2.1.0.zip`，解压即用。
 
 **办法二：直接从仓库里挑出这一个文件（B 端就是单文件）**
 

@@ -5,7 +5,8 @@
   mcmodsync fetch-mods -c pack.local.json [--upgrade] [--lock-manual] [--dry-run]
   mcmodsync push-server -c pack.local.json [--dry-run] [--check-server-client] [--accept-new-host]
   mcmodsync rollback-server -c pack.local.json
-  mcmodsync publish-client -c pack.local.json --version <semver> [--notes "..."] [--dry-run]
+  mcmodsync publish-client -c pack.local.json [--version <A.B.C>] [--notes "..."] [--dry-run]
+  mcmodsync rebuild-sources -c pack.local.json [--dry-run]     # 保底：全量重建来源索引
   mcmodsync package-client -c pack.local.json
 """
 from __future__ import annotations
@@ -287,9 +288,36 @@ def cmd_publish_client(args) -> int:
     try:
         return publisher.publish_client(cfg, store, args.version, notes=args.notes or "",
                                         dry_run=args.dry_run, log=logger.info,
-                                        gc=not getattr(args, "no_gc", False))
+                                        gc=not getattr(args, "no_gc", False),
+                                        resolve=not getattr(args, "no_resolve", False),
+                                        backfill=getattr(args, "backfill", False),
+                                        no_cf=getattr(args, "no_cf", False))
     except publisher.PublishError as e:
         logger.info("publish-client 失败（码 %s）: %s" % (e.exit_code, e))
+        return e.exit_code
+
+
+def cmd_rebuild_sources(args) -> int:
+    """保底命令：对 client-mods 全部 mod 全量重查，整份重建 sources.json。
+
+    与日常发布无关 —— 索引损坏 / 大面积失效 / 平台换域名时才用。
+    """
+    from . import publisher
+    from .storage.s3 import S3Store
+
+    cfg = mconfig.load_config(args.config)
+    st = cfg["storage"]
+    store = S3Store(st["endpointUrl"], st.get("region", ""), st["bucket"],
+                    st.get("prefix", ""), st["accessKey"], st["secretKey"],
+                    bool(st.get("pathStyle", True)))
+    logger = logutil.setup_logger(None, name="mcmodsync")
+    try:
+        return publisher.rebuild_sources(cfg, store, log=logger.info,
+                                         dry_run=args.dry_run,
+                                         lock_path=args.lock,
+                                         no_cf=args.no_cf)
+    except publisher.PublishError as e:
+        logger.info("rebuild-sources 失败（码 %s）: %s" % (e.exit_code, e))
         return e.exit_code
 
 
@@ -363,6 +391,19 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--dry-run", action="store_true")
     pc.add_argument("--no-gc", action="store_true",
                     help="发布后不清理对象存储（默认会删除不再被引用的旧 blob 与旧清单）")
+    pc.add_argument("--backfill", action="store_true",
+                    help="来源索引：本次对全部文件强制重新反查（保底修复时才需要）")
+    pc.add_argument("--no-resolve", action="store_true",
+                    help="来源索引：本次完全跳过（不读不写，线上旧索引保持不变）")
+    pc.add_argument("--no-cf", action="store_true", help="来源索引：跳过 CurseForge 反查")
+
+    rb = sub.add_parser("rebuild-sources", parents=[C],
+                        help="保底：全量重查 client-mods 并覆盖重建 sources.json"
+                             "（索引损坏/失效时用，不进日常流程）")
+    rb.add_argument("--dry-run", action="store_true")
+    rb.add_argument("--lock", default="mods.lock.json",
+                    help="mod 清单路径（默认 mods.lock.json）")
+    rb.add_argument("--no-cf", action="store_true", help="跳过 CurseForge 反查")
 
     pk = sub.add_parser("package-client", parents=[C],
                         help="打包客户端分发包（exe + .py 兜底 + config.json + SHA256SUMS）")
@@ -376,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 # 需要在开始处打印运行分隔头的子命令（doctor 自带表头，故不在内）
 _RUN_HEADER_CMDS = ("fetch-mods", "push-server", "rollback-server",
-                    "publish-client", "package-client")
+                    "publish-client", "rebuild-sources", "package-client")
 
 
 def print_run_header(command: str, log: Callable[[str], None] = print) -> None:
@@ -416,6 +457,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_rollback_server(args)
         if args.command == "publish-client":
             return cmd_publish_client(args)
+        if args.command == "rebuild-sources":
+            return cmd_rebuild_sources(args)
         if args.command == "fetch-mods":
             return cmd_fetch_mods(args)
         if args.command == "package-client":

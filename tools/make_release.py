@@ -14,7 +14,7 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "dist", "release")
-VER = "2.0.0"          # 系统版本（三端统一），与 pyproject.toml 保持一致
+VER = "2.1.0"          # 系统版本（三端统一），与 pyproject.toml 保持一致
 
 
 def current_pack_version():
@@ -140,7 +140,7 @@ C_README = """MC-ModSync · C 端（玩家更新器）
   详细说明和退出码对照表见 C端使用教程.md
 
 【版本说明】（两个版本是两回事，别搞混）
-  更新器版本   ：2.0.0   —— 本包（程序）的版本，三端统一
+  更新器版本   ：2.1.0   —— 本包（程序）的版本，三端统一
   内容清单版本 ：{{PACKVER}}   —— 服主已发布的 mod 清单版本，由服主发布时决定
   更新器只看内容清单版本决定要不要更新 mod，两者互不影响。
 """

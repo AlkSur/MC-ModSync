@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from charness import PACK_ID, Cloud, Instance, make_keys
 
-from mcmodsync import client, hashing, http_download, locking
+from mcmodsync import canonicaljson, client, hashing, http_download, locking, source_index
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -570,4 +570,232 @@ def test_download_instrumentation_hooks_are_optional(env) -> None:
     env.cloud.publish("1.0.0", {"mods/a.jar": b"A", "mods/b.jar": b"B"})
     assert env.inst.sync() == 0
     assert env.inst.mod_names() == ["a.jar", "b.jar"]
+
+
+# --------------------------------------------------------------------------
+# T-52: 多源下载（下载源索引 -> 平台直链优先，失败静默回落对象存储）
+# --------------------------------------------------------------------------
+
+def _write_index(env, mapping: dict, pack_id: str = PACK_ID, sign: bool = True) -> None:
+    """把（可选的签名）下载源索引放到对象存储替身的 pack 根。"""
+    obj = {"schemaVersion": 1, "packId": pack_id, "generatedForVersion": "1.0.0",
+           "updatedAt": "2026-09-22T15:00:00+08:00", "sources": dict(mapping)}
+    if sign:
+        obj = canonicaljson.sign(obj, env.cloud.pem)
+    with open(os.path.join(env.cloud.root, "sources.json"), "wb") as f:
+        f.write(canonicaljson.canonical(obj))
+
+
+def _platform_file(plat, name: str, data: bytes) -> str:
+    d = os.path.join(plat.root, "platform")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, name), "wb") as f:
+        f.write(data)
+    return plat.base_url + "/platform/" + name
+
+
+@pytest.fixture
+def plat(env, tmp_path):
+    """平台 CDN 替身（本地 http；白名单在用例内用 monkeypatch 放行）。"""
+    c = Cloud(str(tmp_path / "plat"), env.pem)
+    c.start()
+    yield c
+    c.stop()
+
+
+def _allow_plat(monkeypatch, plat) -> str:
+    """真实白名单要求 https 域名，测试里改判据放行本地替身（白名单本身另有单测）。"""
+    prefix = plat.base_url + "/platform/"
+    monkeypatch.setattr(source_index, "is_allowed_url",
+                        lambda u: isinstance(u, str) and u.startswith(prefix))
+    return prefix
+
+
+def test_platform_url_used_when_index_hits(env, plat, monkeypatch) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    prefix = _allow_plat(monkeypatch, plat)
+    url = _platform_file(plat, "a.jar", b"A")
+    sha_a = hashlib.sha256(b"A").hexdigest()
+    _write_index(env, {sha_a: {"source": "modrinth", "fileName": "a.jar",
+                               "size": 1, "downloadUrl": url}})
+    assert env.inst.sync() == 0
+    assert env.inst.mod_bytes("a.jar") == b"A"
+    assert any("/platform/a.jar" in h for h in plat.hits)     # 走了平台直链
+    assert not any(sha_a in h for h in env.blob_hits())       # 完全没碰对象存储 blob
+    assert prefix                                  # 前缀确实被用到（防误放行）
+
+
+def test_platform_failure_falls_back_silently(env, plat, monkeypatch) -> None:
+    """平台 404/超时 -> 终端零输出回落，同步仍然成功。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    prefix = _allow_plat(monkeypatch, plat)        # 平台上没有这个文件 -> 404
+    sha_a = hashlib.sha256(b"A").hexdigest()
+    _write_index(env, {sha_a: {"source": "modrinth", "fileName": "a.jar",
+                               "size": 1, "downloadUrl": prefix + "missing.jar"}})
+    logs: list = []
+    traces: list = []
+    assert env.inst.sync(log=logs.append, trace=traces.append) == 0
+    assert env.inst.mod_bytes("a.jar") == b"A"
+    assert any(sha_a in h for h in env.blob_hits())           # 回落成功
+    assert not [m for m in logs if "平台" in m or "直链" in m or "回落" in m]
+    assert any("回落对象存储" in m for m in traces)            # 只在日志文件留一行
+
+
+def test_platform_content_mismatch_falls_back(env, plat, monkeypatch) -> None:
+    """平台给出同名但内容不同的文件 -> sha256 不符 -> 静默回落（不会写坏磁盘）。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"REAL"})
+    prefix = _allow_plat(monkeypatch, plat)
+    url = _platform_file(plat, "a.jar", b"EVIL")             # 内容不符
+    sha_real = hashlib.sha256(b"REAL").hexdigest()
+    _write_index(env, {sha_real: {"source": "modrinth", "downloadUrl": url}})
+    logs: list = []
+    assert env.inst.sync(log=logs.append) == 0
+    assert env.inst.mod_bytes("a.jar") == b"REAL"
+    assert not [m for m in logs if "回落" in m or "校验" in m]
+
+
+def test_unsigned_index_is_ignored(env, plat, monkeypatch) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    _allow_plat(monkeypatch, plat)
+    url = _platform_file(plat, "a.jar", b"A")
+    sha_a = hashlib.sha256(b"A").hexdigest()
+    _write_index(env, {sha_a: {"source": "modrinth", "downloadUrl": url}}, sign=False)
+    logs: list = []
+    traces: list = []
+    assert env.inst.sync(log=logs.append, trace=traces.append) == 0
+    assert any(sha_a in h for h in env.blob_hits())           # 未签名 -> 走对象存储
+    assert not [m for m in logs if "索引" in m or "验签" in m]
+    assert any("验签失败" in m for m in traces)
+
+
+def test_cache_overwritten_on_every_sync(env, plat, monkeypatch) -> None:
+    """每次（需要下载的）同步都会用线上最新索引覆盖本地老文件。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    _allow_plat(monkeypatch, plat)
+    sha_a = hashlib.sha256(b"A").hexdigest()
+    _write_index(env, {sha_a: {"source": "modrinth",
+                               "downloadUrl": plat.base_url + "/platform/a.jar"}})
+    assert env.inst.sync() == 0
+    p = client.sources_path(env.inst.root)
+    assert os.path.isfile(p)
+    assert source_index.count(source_index.load_cached(p)) == 1
+
+    env.cloud.publish("1.0.1", {"mods/a.jar": b"A2"})          # 内容变 -> 要下载
+    _write_index(env, {})                                      # 线上索引变空
+    assert env.inst.sync() == 0
+    assert source_index.count(source_index.load_cached(p)) == 0   # 老缓存被覆盖
+
+
+def test_no_download_means_no_index_request(env) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    assert env.inst.sync() == 0
+    env.reset_hits()
+    assert env.inst.sync() == 0                    # 磁盘已一致 -> 无需下载
+    assert "/sources.json" not in env.cloud.hits
+
+
+def test_prefer_platform_off_skips_index(env) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    env.reset_hits()
+    assert env.inst.sync(prefer_platform=False) == 0
+    assert env.inst.mod_bytes("a.jar") == b"A"
+    assert "/sources.json" not in env.cloud.hits
+    assert not os.path.isfile(client.sources_path(env.inst.root))
+
+
+def test_broken_local_cache_still_syncs(env) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    p = client.sources_path(env.inst.root)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("{broken json")
+    assert env.inst.sync() == 0
+    assert env.inst.mod_bytes("a.jar") == b"A"
+
+
+def test_missing_index_keeps_behaviour_unchanged(env) -> None:
+    """没有 sources.json（未改造的发布端）时，行为与改造前完全一致。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A", "mods/b.jar": b"B"})
+    sha_a = hashlib.sha256(b"A").hexdigest()
+    assert env.inst.sync() == 0
+    assert env.inst.mod_names() == ["a.jar", "b.jar"]
+    assert any(sha_a in h for h in env.blob_hits())
+
+
+# ---------------------------------------------------------------------------
+# 步骤3 游戏运行检测：只认 Minecraft 客户端，不被任意 java 进程误伤
+# ---------------------------------------------------------------------------
+
+def test_mc_image_matching() -> None:
+    assert client._is_mc_image("Minecraft.exe")
+    assert client._is_mc_image("minecraftlauncher.exe")
+    assert not client._is_mc_image("javaw.exe")        # java 宿主进程不算
+    assert not client._is_mc_image("java.exe")
+
+
+def test_looks_like_mc_client_true_for_clients() -> None:
+    vanilla = (r'"C:\Program Files\Java\bin\javaw.exe" -XX:+UseG1GC '
+               r'-Djava.library.path=C:\Users\x\.minecraft\versions\1.20.1\natives '
+               r'-cp forge.jar net.minecraft.client.main.Main --username Steve '
+               r'--uuid abc --gameDir C:\Users\x\.minecraft')
+    assert client._looks_like_mc_client(vanilla)
+    neoforge = ('javaw.exe -cp "C:\\mc\\libraries\\net\\neoforged\\neoforge\\21.1\\'
+                'neoforge.jar" cpw.mods.bootstraplauncher.BootstrapLauncher '
+                '--launchTarget forgeclient --username Alex --gameDir D:\\instances\\demo-pack')
+    assert client._looks_like_mc_client(neoforge)
+
+
+def test_looks_like_mc_client_false_for_servers_and_other_java() -> None:
+    for cl in (
+        "javaw.exe -jar fabric-server-launch.jar nogui",
+        "java.exe -Xmx4G -jar forge-1.20.1-47.2.0.jar nogui",
+        "java.exe -jar minecraft_server.1.20.1.jar nogui",
+        "java.exe -Xmx2G -jar server.jar nogui",
+        r'"C:\Program Files\JetBrains\IntelliJ IDEA\jbr\bin\java.exe" -Xmx750m '
+        r'-Didea.launcher.port=7531 com.intellij.idea.Main',
+        "java.exe -jar some-random-tool.jar --mode=convert",
+        "",
+    ):
+        assert not client._looks_like_mc_client(cl), cl
+
+
+@pytest.mark.skipif(os.name != "nt", reason="tasklist/CIM 检测仅 Windows")
+def test_detect_game_running_ignores_plain_java(monkeypatch) -> None:
+    """旧实现（裸 java 令牌）会把 IDEA 误判成游戏在跑；修复后必须放过。"""
+    def fake_run(argv, **kw):
+        r = type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        if argv and argv[0] == "tasklist":
+            r.stdout = ('"java.exe","30180","Console","1","4,370,928 K"\n'
+                        '"explorer.exe","100","Console","1","50,000 K"\n')
+        elif argv and argv[0] == "wmic":
+            r.stdout = ("Node,CommandLine,ProcessId\n"
+                        "PC,\"java.exe -Didea.launcher.port=7531 com.intellij.idea.Main\",30180\n")
+        return r
+    monkeypatch.setattr(client.subprocess, "run", fake_run)
+    assert client.detect_game_running() is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="tasklist/CIM 检测仅 Windows")
+def test_detect_game_running_true_for_mc_client(monkeypatch) -> None:
+    def fake_run(argv, **kw):
+        r = type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        if argv and argv[0] == "tasklist":
+            r.stdout = '"javaw.exe","4001","Console","1","3,000,000 K"\n'
+        elif argv and argv[0] == "wmic":
+            r.stdout = ("Node,CommandLine,ProcessId\n"
+                        "PC,\"javaw.exe net.minecraft.client.main.Main --username Steve\",4001\n")
+        return r
+    monkeypatch.setattr(client.subprocess, "run", fake_run)
+    assert client.detect_game_running() is True
+
+
+@pytest.mark.skipif(os.name != "nt", reason="tasklist/CIM 检测仅 Windows")
+def test_detect_game_running_true_for_minecraft_image(monkeypatch) -> None:
+    def fake_run(argv, **kw):
+        r = type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+        if argv and argv[0] == "tasklist":
+            r.stdout = '"Minecraft.exe","777","Console","1","1,000 K"\n'
+        return r
+    monkeypatch.setattr(client.subprocess, "run", fake_run)
+    assert client.detect_game_running() is True
 

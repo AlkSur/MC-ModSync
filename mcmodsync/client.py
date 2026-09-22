@@ -6,6 +6,7 @@ subcommand: sync / verify / rollback / doctor（由 client_main.py 分发）。
   <target>/mods/*.jar                     游戏实际读取的平铺 mod 目录
   <target>/_updater/config.json           [3.6] 随分发包下发
   <target>/_updater/state.json            [3.5] 本地已同步状态
+  <target>/_updater/sources.json          下载源索引本地缓存（A 端发布，每次启动覆盖）
   <target>/_updater/.lock                 运行锁（失败码 10）
   <target>/_updater/staging/              下载暂存（blobs/<xx>/<yy>/<sha>）
   <target>/_updater/backup/<时间戳>/      备份 + changes.json（[3.7]）
@@ -18,6 +19,8 @@ subcommand: sync / verify / rollback / doctor（由 client_main.py 分发）。
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import shutil
@@ -30,7 +33,7 @@ import urllib.request
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import canonicaljson, hashing, http_download, locking, manifest, paths
+from . import canonicaljson, hashing, http_download, locking, manifest, paths, source_index
 
 EXIT_OK = 0
 EXIT_GENERIC = 1
@@ -76,6 +79,11 @@ def config_path(target: str) -> str:
 
 def state_path(target: str) -> str:
     return os.path.join(updater_dir(target), "state.json")
+
+
+def sources_path(target: str) -> str:
+    """下载源索引的本地缓存（A 端 sources.json 的副本；纯优化层，损坏无碍）。"""
+    return os.path.join(updater_dir(target), "sources.json")
 
 
 def lock_path(target: str) -> str:
@@ -156,22 +164,159 @@ def _is_downgrade(new: str, old: str) -> bool:
         return new < old
 
 
+# 映像名含这些片段的进程 = Minecraft 本体/官方启动器（不含 java 宿主）
+_MC_IMAGE_HINTS = ("minecraft",)
+# java 宿主进程映像名（需要看命令行才能区分 MC 与任意 Java 程序）
+_JAVA_IMAGES = ("java.exe", "javaw.exe", "java", "javaw")
+# 命令行里出现任一即说明"与 MC 有关"
+_MC_CMDLINE_HINTS = ("minecraft", "net.minecraftforge", "net.neoforged",
+                     "cpw.mods", "net.fabricmc", "quiltmc", "launchwrapper")
+# 专用服务端特征：命中且无客户端专有参数 -> 视为服务端，不拦截
+_MC_SERVER_MARKERS = ("net.minecraft.server", "net/minecraft/server",
+                      "nogui", "server.jar", "minecraft_server")
+# 只有客户端才会带的启动参数
+_MC_CLIENT_ONLY_MARKERS = ("net.minecraft.client", "net/minecraft/client",
+                           "--username", "--accesstoken", "--uuid",
+                           "--gamedir", "--assetsdir", "--assetindex", "--clientid")
+
+
+def _is_mc_image(image: str) -> bool:
+    """映像名是否明确属于 Minecraft 本体/启动器（java 等宿主进程不算）。"""
+    low = (image or "").lower()
+    return any(h in low for h in _MC_IMAGE_HINTS)
+
+
+def _is_java_image(image: str) -> bool:
+    return (image or "").strip().lower() in _JAVA_IMAGES
+
+
+def _looks_like_mc_client(cmdline: str) -> bool:
+    """命令行是否属于一个正在运行的 Minecraft **客户端**（而非专用服务端）。
+
+    只看映像名无法区分 MC 与任意 Java 程序，所以对 java/javaw 必须看命令行：
+    含 MC 相关特征、且不是纯服务端（nogui / net.minecraft.server / server.jar …）
+    才判为客户端。
+    """
+    low = (cmdline or "").lower()
+    if not low or not any(h in low for h in _MC_CMDLINE_HINTS):
+        return False
+    if any(m in low for m in _MC_SERVER_MARKERS) and \
+            not any(m in low for m in _MC_CLIENT_ONLY_MARKERS):
+        return False
+    return True
+
+
+def _parse_image_pid_csv(text: str) -> List[Tuple[str, str]]:
+    """解析 `tasklist /FO CSV /NH` -> [(image, pid)]。"""
+    rows: List[Tuple[str, str]] = []
+    for row in csv.reader(io.StringIO(text or "")):
+        if len(row) >= 2 and row[1].strip().isdigit():
+            rows.append((row[0].strip(), row[1].strip()))
+    return rows
+
+
+def _parse_wmic_csv(text: str) -> Dict[str, str]:
+    """解析 `wmic process get ProcessId,CommandLine /format:csv` -> {pid: cmdline}。"""
+    res: Dict[str, str] = {}
+    for row in csv.reader(io.StringIO(text or "")):
+        if len(row) >= 3 and row[2].strip().isdigit():
+            res[row[2].strip()] = row[1]
+    return res
+
+
+def _parse_cim_csv(text: str) -> Dict[str, str]:
+    """解析 PowerShell `ConvertTo-Csv`（Name,ProcessId,CommandLine）-> {pid: cmdline}。"""
+    res: Dict[str, str] = {}
+    rows = list(csv.reader(io.StringIO(text or "")))
+    if not rows:
+        return res
+    try:
+        hdr = [h.strip().lower() for h in rows[0]]
+        i_name, i_pid, i_cl = (hdr.index("name"), hdr.index("processid"),
+                               hdr.index("commandline"))
+    except ValueError:
+        return res
+    for row in rows[1:]:
+        if len(row) <= max(i_name, i_pid, i_cl):
+            continue
+        name, pid, cl = row[i_name].strip().lower(), row[i_pid].strip(), row[i_cl]
+        if pid.isdigit() and cl and (_is_java_image(name) or _is_mc_image(name)):
+            res[pid] = cl
+    return res
+
+
+def _java_command_lines() -> Dict[str, str]:
+    """尽力而为地取 java 进程命令行（{pid: cmdline}）；取不到返回空 dict。
+
+    新系统已移除 wmic，故优先 wmic、回退 PowerShell CIM。两条路都失败就不下结论
+    （宁可漏判，也不误判卡住玩家更新）。
+    """
+    try:
+        out = subprocess.run(["wmic", "process", "get", "ProcessId,CommandLine",
+                              "/format:csv"], capture_output=True, text=True,
+                             timeout=25, errors="ignore")
+        got = _parse_wmic_csv(out.stdout or "")
+        if got:
+            return got
+    except Exception:  # noqa: BLE001
+        pass
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return {}
+    try:
+        out = subprocess.run(
+            [ps, "-NoProfile", "-NonInteractive", "-Command",
+             "Get-CimInstance Win32_Process | Select-Object Name,ProcessId,CommandLine"
+             " | ConvertTo-Csv -NoTypeInformation"],
+            capture_output=True, text=True, timeout=40, errors="ignore")
+        return _parse_cim_csv(out.stdout or "")
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def detect_game_running() -> bool:
-    """检测 java/javaw/minecraft 相关进程（步骤3）。"""
+    """检测本机是否正在运行 Minecraft **客户端**（步骤3）。
+
+    仅当确有客户端在跑时返回 True（-> 退出码 3）。机上有任意 Java 程序
+    （IDEA / 其他 Java 应用 / MC 服务端 / 其他整合包）不再误判。
+    """
     try:
         if os.name == "nt":
             out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True,
                                  text=True, timeout=20, errors="ignore")
-            text = (out.stdout or "") + (out.stderr or "")
+            procs = _parse_image_pid_csv(out.stdout or "")
         else:
             out = subprocess.run(["ps", "-eo", "comm,args"], capture_output=True,
                                  text=True, timeout=20, errors="ignore")
-            text = (out.stdout or "") + (out.stderr or "")
+            procs = []
+            for line in (out.stdout or "").splitlines()[1:]:
+                parts = line.strip().split(None, 1)
+                if parts:
+                    procs.append((parts[0], parts[1] if len(parts) > 1 else ""))
     except Exception:  # noqa: BLE001  检测失败不阻断
         return False
-    low = text.lower()
-    for token in ("javaw.exe", "java.exe", "minecraft", "javaw", "java"):
-        if token in low:
+
+    if not procs:
+        return False
+    # ① 明确的 MC 本体/启动器映像名
+    if any(_is_mc_image(img) for img, _ in procs):
+        return True
+
+    if os.name != "nt":
+        # POSIX: ps 的 args 第二列就是命令行，直接判定
+        for img, args in procs:
+            if _is_java_image(img) and _looks_like_mc_client(args):
+                return True
+        return False
+
+    # ② Windows: 只有存在 java/java(w) 时才值得额外花代价取命令行
+    java_pids = [pid for img, pid in procs if _is_java_image(img)]
+    if not java_pids:
+        return False
+    cmdlines = _java_command_lines()
+    for pid in java_pids:
+        cl = cmdlines.get(pid)
+        if cl and _looks_like_mc_client(cl):
             return True
     return False
 
@@ -218,6 +363,39 @@ def blob_base_of(manifest_url: str) -> str:
     path = u.path
     base_path = path.rsplit("/", 1)[0] if "/" in path else ""
     return urllib.parse.urlunsplit((u.scheme, u.netloc, base_path, "", ""))
+
+
+def load_source_index(target: str, pointer_url: str, cfg: dict,
+                      enabled: bool = True,
+                      trace: Optional[Callable[[str], None]] = None) -> Dict[str, tuple]:
+    """拉取最新「下载源索引」并覆盖本地缓存，返回 {sha256: (来源, 直链)}。
+
+    纯优化层（[T-52] 多源下载）：
+    - enabled=False（config `client.preferPlatform=false` 或 --no-platform）时
+      完全不请求、不读缓存，直接返回空表 -> 全部走对象存储；
+    - 拉取/验签/落盘任何失败都**静默**（终端零输出，只在 trace 留一行），
+      并沿用本地缓存兜底；
+    - 本函数不参与同步成败判定，拿不到就是"没有优化可用"。
+    """
+    if not enabled:
+        return {}
+    path = sources_path(target)
+    cached = source_index.load_cached(path)
+    fresh = source_index.fetch_index(pointer_url, str(cfg.get("publicKey") or ""),
+                                     str(cfg.get("packId") or ""), timeout=3, trace=trace)
+    if fresh is not None:
+        source_index.save_cached(path, fresh)
+    idx = fresh if fresh is not None else cached
+    out: Dict[str, tuple] = {}
+    for sha in list((idx or {}).get("sources") or {}):
+        hit = source_index.lookup(idx, sha)
+        if hit:
+            out[str(sha).lower()] = hit
+    if trace:
+        state = ("已更新" if fresh is not None
+                 else ("沿用本地缓存" if cached else "无（全部走对象存储）"))
+        trace("下载源索引: %s，可用直链 %d 条" % (state, len(out)))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -508,7 +686,8 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
          on_file_bytes: Optional[Callable[[str, int], None]] = None,
          on_file_reset: Optional[Callable[[str], None]] = None,
          on_file_done: Optional[Callable[[dict], None]] = None,
-         trace: Optional[Callable[[str], None]] = None) -> int:
+         trace: Optional[Callable[[str], None]] = None,
+         prefer_platform: bool = True) -> int:
     """同步一次。
 
     progress / on_file_* / trace 均为**控制台渲染钩子**（可为 None）：
@@ -517,6 +696,9 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
       on_file_reset(sha) / on_file_done(entry)              —— 重试与完成
       trace(msg)                                            —— 只写日志文件的技术细节
     这些钩子只读、不参与任何判定：下载 / 分片 / 重试 / 校验 / 备份逻辑不受影响。
+
+    prefer_platform（多源下载，默认开）：命中下载源索引时优先走 Modrinth /
+    CurseForge 官方 CDN 直链，失败静默回落对象存储；关掉则完全不请求该索引。
     """
     target = os.path.abspath(target)
     os.makedirs(updater_dir(target), exist_ok=True)
@@ -529,7 +711,8 @@ def sync(target: str, strict: bool = False, no_downgrade: bool = False,
     try:
         return _sync_locked(target, strict, no_downgrade, keep_backups, log,
                             game_running_check, progress, on_file_start,
-                            on_file_bytes, on_file_reset, on_file_done, trace)
+                            on_file_bytes, on_file_reset, on_file_done, trace,
+                            prefer_platform)
     except ClientError as e:
         log("错误(%d): %s" % (e.exit_code, e))
         return int(e.exit_code)
@@ -565,13 +748,14 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
                  on_file_bytes: Optional[Callable[[str, int], None]] = None,
                  on_file_reset: Optional[Callable[[str], None]] = None,
                  on_file_done: Optional[Callable[[dict], None]] = None,
-                 trace: Optional[Callable[[str], None]] = None) -> int:
+                 trace: Optional[Callable[[str], None]] = None,
+                 prefer_platform: bool = True) -> int:
     # 步骤2 配置
     cfg = load_config(target)                            # 缺字段 -> 1
     # 步骤3 游戏运行检测
     check = game_running_check or detect_game_running
     if check():
-        log("检测到 Minecraft 相关进程（java/javaw/minecraft）正在运行，请完全退出游戏后重试。")
+        log("检测到 Minecraft 客户端正在运行，请完全退出游戏后重试。")
         return EXIT_GAME_RUNNING
 
     # 步骤4 拉指针 + 版本清单（验签失败 -> 2）
@@ -685,12 +869,20 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
                 on_file_done(entry)
             _emit()
 
-        # source 仅用于控制台“来源”标识（清单缺省 -> 对象存储）；不影响下载地址
-        http_download.download_blobs([{"path": e["path"], "sha256": e["sha256"],
-                                       "size": int(e["size"]),
-                                       "source": e.get("source") or ""}
-                                      for e in downloads],
-                                     base, staging, concurrency=4, retries=3, log=log,
+        # 下载源索引：只有真要下东西时才拉一次（纯优化层，失败静默、不阻断）
+        alt = load_source_index(target, pointer_url, cfg,
+                                bool(cfg.get("preferPlatform", True)) and prefer_platform,
+                                trace)
+        tasks = []
+        for e in downloads:
+            hit = alt.get(str(e["sha256"]).lower())
+            tasks.append({
+                "path": e["path"], "sha256": e["sha256"], "size": int(e["size"]),
+                # source 仅用于控制台“来源”标识；altUrl 命中时优先走平台 CDN 直链
+                "source": (hit[0] if hit else ""),
+                "altUrl": (hit[1] if hit else ""),
+            })
+        http_download.download_blobs(tasks, base, staging, concurrency=4, retries=3, log=log,
                                      on_done=_on_done, on_start=on_file_start,
                                      on_bytes=on_file_bytes, on_reset=on_file_reset,
                                      trace=trace)

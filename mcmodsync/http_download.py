@@ -32,6 +32,12 @@ SEGMENT_MIN_SIZE = 2 * 1024 * 1024   # 小于此值不分片（分片反而多�
 SEGMENT_SIZE = 1024 * 1024           # 单个分片的目标大小
 SEGMENT_MAX = 8                      # 单文件最多分几片
 
+# 平台直链（Modrinth / CurseForge 官方 CDN）尝试参数：只试 1 次、短超时、不重试。
+# 这些站点在国内连通性不稳定，必须"快速失败 + 静默回落"，
+# 绝不能套用对象存储那套「3 次 × 递增退避」（否则玩家要干等 3 分钟才回落）。
+PLATFORM_TIMEOUT = 8
+PLATFORM_RETRIES = 1
+
 
 class DownloadError(Exception):
     def __init__(self, exit_code: int, message: str) -> None:
@@ -155,7 +161,8 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
                  segments: int = 0,
                  on_bytes: Optional[Callable[[int], None]] = None,
                  on_reset: Optional[Callable[[], None]] = None,
-                 trace: Optional[Callable[[str], None]] = None) -> None:
+                 trace: Optional[Callable[[str], None]] = None,
+                 timeout: int = 60) -> None:
     """Download one blob with retries; verify via verify_fn(dst) on final path.
 
     segments > 1 时优先多分片并发下载（大文件提速显著）；分片失败自动回退单连接，
@@ -184,7 +191,8 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
             if use_segments > 1:
                 try:
                     status = _fetch_segmented(url, tmp, expected_size, use_segments,
-                                              log=log, progress=on_bytes, trace=trace)
+                                              log=log, progress=on_bytes, trace=trace,
+                                              timeout=timeout)
                 except Exception as e:          # noqa: BLE001  回退单连接
                     if log:
                         log("分片下载未成功，改用单连接: %s" % e)
@@ -192,9 +200,9 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
                         os.remove(tmp)
                     if on_reset:                # 埋点：回退单连接后重新计数
                         on_reset()
-                    status = _fetch(url, tmp, progress=on_bytes)
+                    status = _fetch(url, tmp, timeout=timeout, progress=on_bytes)
             else:
-                status = _fetch(url, tmp, progress=on_bytes)
+                status = _fetch(url, tmp, timeout=timeout, progress=on_bytes)
             # 先校验临时文件，通过后才原子落位；失败不污染 dst。
             if not verify_fn(tmp):
                 raise DownloadError(5, "下载内容校验失败: %s" % url)
@@ -251,6 +259,33 @@ def download(url: str, dst: str, expected_sha: str, expected_size: int,
                  on_bytes=on_bytes, on_reset=on_reset, trace=trace)
 
 
+def _try_platform(url: str, dst: str, sha: str, size: int,
+                  verify_fn: Callable[[str], bool],
+                  on_bytes: Optional[Callable[[int], None]] = None,
+                  on_reset: Optional[Callable[[], None]] = None,
+                  trace: Optional[Callable[[str], None]] = None) -> bool:
+    """平台直链尝试：1 次、超时 8s、不重试；成功返回 True。
+
+    复用 download_one 的完整路径（分段/校验/原子落位逻辑一行不改）。
+    失败**静默** —— 终端不打印任何字样，只在 trace（日志文件）里留一行，
+    便于事后区分"这个文件本来就没有直链"和"直链挂了"。
+    """
+    try:
+        download_one(url, dst, sha, size, verify_fn,
+                     retries=PLATFORM_RETRIES, log=None, segments=1,
+                     timeout=PLATFORM_TIMEOUT,
+                     on_bytes=on_bytes, on_reset=on_reset, trace=trace)
+        return True
+    except Exception as e:  # noqa: BLE001  任何失败都回落；详情只进日志
+        if trace:
+            try:
+                trace("平台直链不可用，已回落对象存储: %s（%s）"
+                      % (os.path.basename(dst), e))
+            except Exception:
+                pass
+        return False
+
+
 def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
                    concurrency: int = 4, retries: int = 3,
                    log: Optional[Callable[[str], None]] = None,
@@ -262,6 +297,8 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
     """Download all blobs into staging; returns total downloaded bytes.
 
     tasks: list of {path, sha256, size} entries that need downloading.
+      可选字段：altUrl —— 平台 CDN 直链，非空时**先试它**（1 次 / 8s / 不重试），
+                失败静默回落对象存储；source —— 仅用于控制台"来源"标签。
     on_done: 每个 blob 落位后回调（供 C 端渲染进度）。
     on_start(entry) / on_bytes(sha, n) / on_reset(sha): 文件级进度渲染埋点，
         只上报不判定；on_bytes 可能在多个分片线程中并发调用，渲染端需自行加锁。
@@ -297,6 +334,20 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
 
         if on_start:                             # 埋点：文件开始下载（渲染第 1 行）
             on_start(expected)
+
+        alt = str(expected.get("altUrl") or "")
+        if alt:
+            # 平台直链优先；失败静默回落（终端无任何输出），计数归零后走原有全流程
+            if _try_platform(alt, dst, sha, expected["size"], _verify,
+                             on_bytes=(lambda n: on_bytes(sha, n)) if on_bytes else None,
+                             on_reset=(lambda: on_reset(sha)) if on_reset else None,
+                             trace=trace):
+                if on_done:
+                    on_done(expected)
+                return expected
+            if on_reset:
+                on_reset(sha)
+
         download_one(url, dst, sha, expected["size"], _verify, retries=retries,
                      log=log, segments=per_file,
                      on_bytes=(lambda n: on_bytes(sha, n)) if on_bytes else None,

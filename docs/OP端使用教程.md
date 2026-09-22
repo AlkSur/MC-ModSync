@@ -51,9 +51,9 @@ pyproject.toml  pack.example.json  mods.lock.json
 它会在 `dist\release\` 下生成三个包，可以直接分发：
 
 ```
-MC-ModSync-A端-OP工具-v2.0.0.zip        ← 你自己用
-MC-ModSync-B端-服务端脚本-v2.0.0.zip    ← 给管服务器的人
-MC-ModSync-C端-玩家更新器-v2.0.0.zip    ← 发给玩家
+MC-ModSync-A端-OP工具-v2.1.0.zip        ← 你自己用
+MC-ModSync-B端-服务端脚本-v2.1.0.zip    ← 给管服务器的人
+MC-ModSync-C端-玩家更新器-v2.1.0.zip    ← 发给玩家
 ```
 
 `--build` 会先跑 `mcmodsync package-client`（构建 exe + 渲染 config.json）再打三个包，所以**一条命令就够了**。
@@ -309,6 +309,20 @@ mcmodsync publish-client --notes "更新了XX，移除了XX"
 
 `--notes` 写的是本次更新说明，会随版本清单永久保存在对象存储里，之后可随时回查每个版本改了什么。终端只显示本版相对上一版的新增/替换/删除；历史遗留的删除记录不会重复打印，但玩家升级清单里仍然完整保留。
 
+#### 顺带更新"下载源索引"（自动，不用管）
+
+发布时还会覆盖上传一份 `sources.json`（**下载源索引**，与清单同一个目录）。玩家端每次同步前拉一次，命中平台直链就从 Modrinth / CurseForge 官方 CDN 下载，失败**自动静默回落**对象存储 —— 传输链路对玩家完全无感，只是帮你省对象存储的出网流量。索引只对**本次变更**的 mod 联网反查，其余从上一版按哈希继承。
+
+| 场景 | 怎么做 |
+| --- | --- |
+| 平时 | 什么都不用管，`publish-client` 自带这一步 |
+| 只想发清单、不动索引 | `mcmodsync publish-client --no-resolve` |
+| 索引里数据脏了 / 想全量重查 | `mcmodsync publish-client --backfill` |
+| 索引整体损坏，要彻底重来 | `mcmodsync rebuild-sources`（保底命令，全量重查并覆盖上传） |
+| 不查 CurseForge（限流或没配 apiKey） | 任意一条命令后面加 `--no-cf` |
+
+`sources.json` 上传失败**不会**让发布失败（它只是加速层，缺了玩家就全走对象存储），终端最多打一行警告。
+
 ### 第 5 步：通知玩家
 
 让玩家双击"更新mod"，完成后自己打开启动器进游戏。
@@ -327,6 +341,10 @@ mcmodsync publish-client --notes "更新了XX，移除了XX"
 | `mcmodsync publish-client --dry-run` | 预览客户端会发布什么（不写任何东西） |
 | `mcmodsync publish-client --notes "..."` | 发布客户端到对象存储（版本号自动 +1） |
 | `mcmodsync publish-client --version 2.0.0 --notes "..."` | 手动指定版本号发布（格式 A.B.C：A=1-9、B=0-9、C=0-6） |
+| `mcmodsync publish-client --no-resolve` | 本次不更新下载源索引（线上旧索引保持不变） |
+| `mcmodsync publish-client --backfill` | 来源索引全量重查一遍（保底修复时用） |
+| `mcmodsync rebuild-sources` | **保底**：全量重查 client-mods 并覆盖重建 `sources.json`（索引损坏时才用，不进日常流程） |
+| `mcmodsync rebuild-sources --dry-run` | 先看会重建出什么，不写任何东西 |
 | `mcmodsync package-client` | 重新打包玩家端（只有更新器本身改了才需要） |
 | `python tools\gen_lock.py` | 扫描 client-mods/ 的 jar，自动把平台来源写进锁文件 |
 | `python tools\gen_lock.py --apply` | 把生成结果应用成正式的 mods.lock.json（不联网、秒完成，自动备份原文件） |
@@ -341,5 +359,7 @@ mcmodsync publish-client --notes "更新了XX，移除了XX"
 - **push-server 报码 11**：脚本会自动重传并重试一次；还失败就把提示里的 B 日志路径发给维护者。
 - **publish-client 报"版本号须为 A.B.C"**：手动指定的 `--version` 格式不对（A=1-9、B=0-9、C=0-6，如 `2.0.0`）。不写 `--version` 就不会遇到这个问题——自动递增永远合法。
 - **`fetch-mods` 摘要三项都是 0**：因为 `mods.lock.json` 的 `mods` 是空数组。它只处理登记过的条目，**不会扫目录里已有的 jar**。用 `python tools\gen_lock.py` 自动登记一遍即可；已经放好的 jar 不去登记也不影响推送和发布。
+- **下载源索引坏了 / 玩家反馈"来源"不对**：跑一次 `mcmodsync rebuild-sources`（会全量重查 client-mods 并覆盖上传）；想先看结果就加 `--dry-run`。想**彻底停用**多源下载，直接把对象存储里的 `sources.json` 删掉即可 —— 玩家端下次同步静默回落对象存储，什么都不用改。
+- **玩家反馈更新变慢**：让玩家把 `_updater/config.json` 里的 `"preferPlatform"` 改成 `false`（或临时用 `mcmodsync sync --no-platform`），就回到"全部走对象存储"的老行为。
 - **换电脑了**：带上 `pack.local.json`、私钥（`~/.mcmodsync/private.key`）和 mods.lock.json 就能接着干。
 - **怀疑凭证泄露**：先跑 `mcmodsync doctor` 里的泄露检查；真泄露了必须换钥，光删文件没用。

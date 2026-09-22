@@ -106,6 +106,8 @@ def _put(pub, mapping: dict) -> None:
 
 
 def _publish(pub, version, notes="", **kw):
+    # 单测不联网解析来源索引（另有 test_publisher_sources.py 专项覆盖）
+    kw.setdefault("resolve", False)
     return publisher.publish_client(pub["cfg"], pub["store"], version, notes=notes,
                                     log=kw.pop("log", lambda m: None), **kw)
 
@@ -337,14 +339,17 @@ def test_live_publish_three_versions_with_cdn(tmp_path) -> None:
 
     (src / "a.jar").write_bytes(b"A1")
     (src / "b.jar").write_bytes(b"B1")
-    assert publisher.publish_client(cfg, store, "1.0.0", notes="首版", log=lambda m: None) == 0
+    assert publisher.publish_client(cfg, store, "1.0.0", notes="首版",
+                                    log=lambda m: None, resolve=False) == 0
 
     (src / "b.jar").write_bytes(b"B2")
-    assert publisher.publish_client(cfg, store, "1.1.0", notes="换 B", log=lambda m: None) == 0
+    assert publisher.publish_client(cfg, store, "1.1.0", notes="换 B",
+                                    log=lambda m: None, resolve=False) == 0
 
     (src / "b.jar").unlink()
     (src / "c.jar").write_bytes(b"C1")
-    assert publisher.publish_client(cfg, store, "1.2.0", log=lambda m: None) == 0
+    assert publisher.publish_client(cfg, store, "1.2.0",
+                                    log=lambda m: None, resolve=False) == 0
 
     # 缓存头（经 CDN 匿名读 + HEAD 语义）
     def _head_cc(key):
@@ -361,7 +366,8 @@ def test_live_publish_three_versions_with_cdn(tmp_path) -> None:
     # 本地 state 丢失 -> 从 CDN 云端恢复后发布
     os.remove(str(tmp_path / "state.json"))
     (src / "d.jar").write_bytes(b"D1")
-    assert publisher.publish_client(cfg, store, "1.3.0", log=lambda m: None) == 0
+    assert publisher.publish_client(cfg, store, "1.3.0",
+                                    log=lambda m: None, resolve=False) == 0
     v = json.loads(urllib.request.urlopen(cdn + "manifests/1.3.0.json", timeout=20).read())
     assert [d["path"] for d in v["delete"]] == ["mods/b.jar"]
 

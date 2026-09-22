@@ -340,6 +340,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-downgrade", action="store_true", help="版本回退时终止（码 1）")
     s.add_argument("--keep-backups", type=int, default=client.DEFAULT_KEEP_BACKUPS,
                    help="保留的备份份数（默认 1）")
+    s.add_argument("--no-platform", action="store_true",
+                   help="本次不查下载源索引，全部走对象存储（排障用；"
+                        "默认由 config.json 的 preferPlatform 决定）")
 
     v = sub.add_parser("verify", help="只校验不修改")
     common(v)
@@ -386,7 +389,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                          on_file_bytes=con.files.add_bytes,
                          on_file_reset=con.files.reset,
                          on_file_done=con.files.done,
-                         trace=con.trace)
+                         trace=con.trace,
+                         prefer_platform=not args.no_platform)
     elif args.command == "verify":
         rc = client.verify(target, strict=args.strict, log=con.log)
     elif args.command == "rollback":

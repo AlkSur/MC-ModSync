@@ -28,6 +28,7 @@ MODULES = [
     "mcmodsync.http_download",
     "mcmodsync.ed25519_min",
     "mcmodsync.client",
+    "mcmodsync.source_index",
 ]
 FILES = {
     "mcmodsync.hashing": REPO_ROOT / "mcmodsync" / "hashing.py",
@@ -39,6 +40,7 @@ FILES = {
     "mcmodsync.http_download": REPO_ROOT / "mcmodsync" / "http_download.py",
     "mcmodsync.ed25519_min": REPO_ROOT / "mcmodsync" / "ed25519_min.py",
     "mcmodsync.client": REPO_ROOT / "mcmodsync" / "client.py",
+    "mcmodsync.source_index": REPO_ROOT / "mcmodsync" / "source_index.py",
 }
 BLOCKED_ROOTS = ("boto3", "botocore", "paramiko", "cryptography", "nacl", "requests")
 

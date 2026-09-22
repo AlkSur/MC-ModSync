@@ -133,8 +133,12 @@ def render_config(pack_file: str) -> Dict[str, object]:
                               ("client.publicKey", public_key)) if not v]
     if missing:
         _die("pack.local.json 缺少字段: %s" % ", ".join(missing))
+    # preferPlatform: 是否优先走 Modrinth/CurseForge 官方 CDN（失败自动回落对象存储）。
+    # 缺省 true；玩家可在 config.json 里改 false 关闭（或 sync --no-platform 临时关闭）。
+    prefer = cli.get("preferPlatform", True)
     return {"schemaVersion": 1, "packId": pack_id,
-            "manifestUrl": manifest_url, "publicKey": public_key}
+            "manifestUrl": manifest_url, "publicKey": public_key,
+            "preferPlatform": bool(prefer)}
 
 
 # --------------------------------------------------------------------------
