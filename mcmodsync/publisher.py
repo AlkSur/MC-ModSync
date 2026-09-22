@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import posixpath
+import re
 import time
 import urllib.error
 import urllib.request
@@ -23,6 +24,10 @@ BLOB_CC = "public, max-age=31536000, immutable"
 
 SUPPORTED_SCHEMA_VERSION = 1
 
+# 版本号规则: A.B.C —— A 大版本(1-9)、B 版本类(0-9)、C 小版本(0-6)。
+# 自动递增: C 满 6 进位到 B、B 满 9 进位到 A（如 1.1.6 -> 1.2.0）。
+_VERSION_RE = re.compile(r"^([1-9])\.([0-9])\.([0-6])$")
+
 EXIT_OK = 0
 EXIT_GENERIC = 1
 EXIT_VERIFY = 2
@@ -33,6 +38,39 @@ class PublishError(Exception):
     def __init__(self, exit_code: int, message: str) -> None:
         super().__init__(message)
         self.exit_code = exit_code
+
+
+def validate_version(version: str) -> str:
+    """校验手动指定的版本号格式（A=1-9、B=0-9、C=0-6），非法立即报错。"""
+    v = (version or "").strip()
+    if not _VERSION_RE.match(v):
+        raise PublishError(EXIT_GENERIC,
+                           "版本号须为 A.B.C（A=1-9、B=0-9、C=0-6），收到: %r" % (version,))
+    return v
+
+
+def next_version(prev: str) -> str:
+    """在上一版本基础上自动递增（C 满 6 进 B，B 满 9 进 A）。
+
+    prev 为空视为首次发布，返回 1.0.0；prev 非法时要求手动指定 --version。
+    """
+    p = (prev or "").strip()
+    m = _VERSION_RE.match(p)
+    if not m:
+        if p:
+            raise PublishError(EXIT_GENERIC,
+                               "上一版本号 %r 不符合 A.B.C 格式，请用 --version 手动指定新版本" % p)
+        return "1.0.0"                              # 首次发布
+    a, b, c = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    c += 1
+    if c > 6:                                       # C 满 6 -> 进位到 B
+        c, b = 0, b + 1
+    if b > 9:                                       # B 满 9 -> 进位到 A
+        b, a = 0, a + 1
+    if a > 9:
+        raise PublishError(EXIT_GENERIC,
+                           "版本号已达上限 9.9.6，无更高版本可用（请更换 pack 或重置版本序列）")
+    return "%d.%d.%d" % (a, b, c)
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +105,12 @@ def compute_delete(old_manifest: Optional[dict], new_files: List[dict], version:
 
 
 def gc_unreferenced(store, files: List[dict], version: str, log=print) -> dict:
-    """清理对象存储：只保留当前清单引用的 blob 与最新一份版本清单。
+    """清理对象存储：只删除未被当前清单引用的 blob；版本清单全部保留。
 
     - blobs/<sha> 为内容寻址；未被当前清单引用的（历史版本被替换掉的 jar）删除；
-    - manifests/*.json 只留当前版本那份（C 端只读指针 manifest.json，不需要历史清单）；
-    - 返回 {"blobs": 删除数, "manifests": 删除数, "freed": 释放字节}。
+    - manifests/*.json 一律保留（每份仅几十 KB，保留后可追溯任意历史版本的
+      releaseNotes 与文件列表，即"更新日志"）；
+    - 返回 {"blobs": 删除数, "manifests": 0, "freed": 释放字节}。
 
     注意：本函数不做时间保护窗口——由调用方决定是否启用（默认每次发布后执行）。
     """
@@ -84,20 +123,11 @@ def gc_unreferenced(store, files: List[dict], version: str, log=print) -> dict:
             removed_blobs += 1
             freed += o["size"]
 
-    keep_manifest = "manifests/%s.json" % version
-    removed_manifests = 0
-    for o in store.list_objects("manifests"):
-        if o["key"] != keep_manifest:
-            store.delete(o["key"])
-            removed_manifests += 1
-            freed += o["size"]
-
-    if removed_blobs or removed_manifests:
-        log("已清理未引用对象: blob %d 个、清单 %d 个"
-            % (removed_blobs, removed_manifests))
+    if removed_blobs:
+        log("已清理未引用对象: blob %d 个（版本清单全部保留）" % removed_blobs)
     else:
         log("无需清理：存储中已无未引用对象")
-    return {"blobs": removed_blobs, "manifests": removed_manifests, "freed": freed}
+    return {"blobs": removed_blobs, "manifests": 0, "freed": freed}
 
 
 def build_version_manifest(pack_id: str, version: str, notes: str, files: List[dict],
@@ -185,15 +215,12 @@ def save_publish_state(path: str, manifest_obj: dict) -> None:
 # 编排
 # ---------------------------------------------------------------------------
 
-def publish_client(cfg, store, version: str, conn=None, notes: str = "",
+def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
                    dry_run: bool = False, log: Callable[[str], None] = print,
                    server_files: Optional[List[dict]] = None,
                    check_server_client: bool = False,
                    local_manifest: Optional[dict] = None,
                    lock_path: str = "mods.lock.json", gc: bool = True) -> int:
-    if not version:
-        raise PublishError(EXIT_GENERIC, "publish-client 必须提供 --version（缺失立即报错）")
-
     pack_id = cfg["packId"]
     client_cfg = cfg["client"]
     mods_dir = cfg["server"].get("modsDir", "mods")
@@ -227,6 +254,15 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
             log("云端恢复失败（视为首次发布）: %s" % e)
             old = None
 
+    # 步骤2.5 版本号：缺省时在上一版本基础上自动递增；手动指定则校验格式
+    version = (version or "").strip()
+    if version:
+        version = validate_version(version)
+    else:
+        prev = (old or {}).get("version", "")
+        version = next_version(prev)
+        log("版本号自动递增: %s -> %s" % (prev or "(首次发布)", version))
+
     # 步骤3 变更与累计 delete
     old_files = {f["path"]: f for f in (old or {}).get("files", [])}
     new_files = {f["path"]: f for f in files}
@@ -234,13 +270,18 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
     replaced = sorted(p for p in new_files if p in old_files
                       and old_files[p]["sha256"] != new_files[p]["sha256"])
     delete = compute_delete(old, files, version)
-    log("本版变更: 新增 %d、替换 %d、累计 delete %d" % (len(added), len(replaced), len(delete)))
+    # 终端只显示「本版 vs 上一版」的差异；历史继承的删除不重复打印（清单里仍完整保留）
+    newly_deleted = sorted(p for p in old_files if p not in new_files)
+    inherited = len(delete) - len(newly_deleted)
+    log("本版变更: 新增 %d、替换 %d、删除 %d" % (len(added), len(replaced), len(newly_deleted)))
     for p in added:
         log("  新增: %s" % p)
     for p in replaced:
         log("  替换: %s" % p)
-    for d in delete:
-        log("  删除: %s (自 %s)" % (d["path"], d["deletedInVersion"]))
+    for p in newly_deleted:
+        log("  删除: %s" % p)
+    if inherited > 0:
+        log("  （另有历史删除 %d 条沿用旧清单，不再重复显示）" % inherited)
 
     # 步骤4 双端交集检查（服务端有、客户端无）
     if server_files is None and conn is not None:
@@ -319,14 +360,15 @@ def publish_client(cfg, store, version: str, conn=None, notes: str = "",
         save_publish_state(state_file, signed)
         log("已写回本地发布状态: %s" % state_file)
 
-    # 步骤9 清理：对象存储只保留「当前版本引用的 blob + 最新一份版本清单」
+    # 步骤9 清理：对象存储只保留「当前版本引用的 blob」，版本清单全部保留（可追溯历史更新说明）
     if gc:
         try:
             st = gc_unreferenced(store, files, version, log)
-            log("存储清理: 删除旧 blob %d 个、旧清单 %d 个，释放 %.1f MiB"
-                % (st["blobs"], st["manifests"], st["freed"] / 1048576.0))
+            log("存储清理: 删除旧 blob %d 个，释放 %.1f MiB（版本清单全部保留）"
+                % (st["blobs"], st["freed"] / 1048576.0))
         except Exception as e:      # GC 失败不影响发布结果（指针已生效）
             log("警告: 存储清理失败（不影响本次发布）: %s" % e)
 
-    log("publish-client 完成: version=%s files=%d delete=%d" % (version, len(files), len(delete)))
+    log("publish-client 完成: version=%s files=%d 本版删除=%d 清单累计删除=%d"
+        % (version, len(files), len(newly_deleted), len(delete)))
     return EXIT_OK

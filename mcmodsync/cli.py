@@ -278,9 +278,6 @@ def cmd_publish_client(args) -> int:
     from . import publisher
     from .storage.s3 import S3Store
 
-    if not args.version:
-        print("publish-client 需要 --version <semver>（缺失立即报错，不做交互询问）")
-        return EXIT_GENERIC
     cfg = mconfig.load_config(args.config)
     st = cfg["storage"]
     store = S3Store(st["endpointUrl"], st.get("region", ""), st["bucket"],
@@ -359,7 +356,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("rollback-server", parents=[C], help="回滚服务端")
 
     pc = sub.add_parser("publish-client", parents=[C], help="发布客户端清单与 blob")
-    pc.add_argument("--version", default="", help="semver，必填")
+    pc.add_argument("--version", default="",
+                    help="版本号 A.B.C（A=1-9、B=0-9、C=0-6）；缺省时在上版基础上自动 +1"
+                         "（C 满 6 进 B，B 满 9 进 A，如 1.1.6 -> 1.2.0）")
     pc.add_argument("--notes", default="")
     pc.add_argument("--dry-run", action="store_true")
     pc.add_argument("--no-gc", action="store_true",

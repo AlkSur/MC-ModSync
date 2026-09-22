@@ -210,15 +210,19 @@ cd F:\Storage\ai\plugins-Dev\mc-modsync      # 进仓库目录（必须，程序
 | 2 | `mcmodsync push-server --dry-run` | 只看会改什么，不写任何东西 | 几秒 |
 | 3 | `mcmodsync push-server` | 推送服务端（只传变化的 jar） | 几秒~几分钟 |
 | 4 | （手动）**重启 MC 服务器**，日志看到 `Done (` | 亲眼确认服务端没问题 | — |
-| 5 | `mcmodsync publish-client --version 1.0.2 --notes "更新了XX"` | 发布客户端（版本号递增） | 首次几分钟，之后几十秒 |
-| 6 | （手动）通知玩家双击"更新mod" | 玩家侧增量更新 | — |
+| 5 | `mcmodsync publish-client --dry-run` | 只看客户端会发布什么，不写任何东西 | 几秒 |
+| 6 | `mcmodsync publish-client --notes "更新了XX"` | 发布客户端（版本号自动 +1） | 首次几分钟，之后几十秒 |
+| 7 | （手动）通知玩家双击"更新mod" | 玩家侧增量更新 | — |
 
 > **为什么第 4 步不能跳**：客户端发布是不可逆的分发动作。必须等服务端重启验证通过再发布，
 > 否则玩家拿到新 mod 却进不去服——这是整套流程的"失败不上传"保障。
 >
-> **版本号**：`--version` 每次要比上次大（1.0.0 → 1.0.1 → 1.0.2……）。忘了推进会报错。
+> **版本号（自动）**：不用写 `--version`，每次发布会自动在上一版基础上 +1。
+> 格式为 `A.B.C`（A=大版本 1-9、B=版本类 0-9、C=小版本 0-6）：
+> C 满 6 进位到 B、B 满 9 进位到 A，如 `1.1.5 → 1.1.6 → 1.2.0 → 2.0.0`。
+> 首次发布从 `1.0.0` 开始。想手动指定（如大改版直接跳 `2.0.0`）可写 `--version 2.0.0`，格式不符会报错。
 >
-> **只改了服务端 mod（没碰 client-mods）**：第 5 步的版本号不用动，也不要发布客户端。
+> **只改了服务端 mod（没碰 client-mods）**：不要发布客户端，客户端版本号不会变。
 
 ### 第 1 步：整理 mod
 
@@ -291,11 +295,19 @@ mcmodsync push-server
 
 ### 第 4 步：发布客户端到对象存储
 
+先看看会发布什么（不写任何东西）：
+
 ```
-mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
+mcmodsync publish-client --dry-run
 ```
 
-版本号每次要比上次大（1.0.0 → 1.0.1 → 1.0.2……）。
+确认无误，正式发布（**版本号不用写，自动 +1**）：
+
+```
+mcmodsync publish-client --notes "更新了XX，移除了XX"
+```
+
+`--notes` 写的是本次更新说明，会随版本清单永久保存在对象存储里，之后可随时回查每个版本改了什么。终端只显示本版相对上一版的新增/替换/删除；历史遗留的删除记录不会重复打印，但玩家升级清单里仍然完整保留。
 
 ### 第 5 步：通知玩家
 
@@ -312,7 +324,9 @@ mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
 | `mcmodsync push-server` | 推送服务端 mod 到 MC 服务器 |
 | `mcmodsync push-server --dry-run` | 只看不改 |
 | `mcmodsync rollback-server` | 回滚服务端到上一版 |
-| `mcmodsync publish-client --version X.Y.Z` | 发布客户端到对象存储 |
+| `mcmodsync publish-client --dry-run` | 预览客户端会发布什么（不写任何东西） |
+| `mcmodsync publish-client --notes "..."` | 发布客户端到对象存储（版本号自动 +1） |
+| `mcmodsync publish-client --version 2.0.0 --notes "..."` | 手动指定版本号发布（格式 A.B.C：A=1-9、B=0-9、C=0-6） |
 | `mcmodsync package-client` | 重新打包玩家端（只有更新器本身改了才需要） |
 | `python tools\gen_lock.py` | 扫描 client-mods/ 的 jar，自动把平台来源写进锁文件 |
 | `python tools\gen_lock.py --apply` | 把生成结果应用成正式的 mods.lock.json（不联网、秒完成，自动备份原文件） |
@@ -325,7 +339,7 @@ mcmodsync publish-client --version 1.0.1 --notes "更新了XX，移除了XX"
 - **`doctor` 报"不是 git 仓库"（橙色）**：正常，解压下来的 zip / 直接拷贝的文件夹都没有 `.git`。这项只是检查凭证有没有被提交进 git，不适用就跳过，不影响使用。
 - **`doctor` 报对象存储上传失败**：多半是本机网络或代理的问题（挂了代理就先关掉试试），换个网络再跑一次确认。
 - **push-server 报码 11**：脚本会自动重传并重试一次；还失败就把提示里的 B 日志路径发给维护者。
-- **publish-client 忘了写 --version**：会直接报错，补上版本号再跑。
+- **publish-client 报"版本号须为 A.B.C"**：手动指定的 `--version` 格式不对（A=1-9、B=0-9、C=0-6，如 `2.0.0`）。不写 `--version` 就不会遇到这个问题——自动递增永远合法。
 - **`fetch-mods` 摘要三项都是 0**：因为 `mods.lock.json` 的 `mods` 是空数组。它只处理登记过的条目，**不会扫目录里已有的 jar**。用 `python tools\gen_lock.py` 自动登记一遍即可；已经放好的 jar 不去登记也不影响推送和发布。
 - **换电脑了**：带上 `pack.local.json`、私钥（`~/.mcmodsync/private.key`）和 mods.lock.json 就能接着干。
 - **怀疑凭证泄露**：先跑 `mcmodsync doctor` 里的泄露检查；真泄露了必须换钥，光删文件没用。

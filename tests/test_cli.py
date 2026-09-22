@@ -86,16 +86,21 @@ def test_main_keygen_dispatch(tmp_path) -> None:
 # publish-client 必填
 # --------------------------------------------------------------------------
 
-def test_publish_client_requires_version() -> None:
+def test_publish_client_version_is_optional() -> None:
+    """--version 缺省不再前置报错，直接进入配置加载（自动递增在 publisher 内处理）。"""
+    from mcmodsync import config as mconfig
+
     class A:
         version = ""
         config = "nope.json"
         notes = None
         dry_run = False
-    assert cli.cmd_publish_client(A()) == 1
+    with pytest.raises(mconfig.ConfigError):
+        cli.cmd_publish_client(A())
 
 
 def test_main_publish_client_without_version_returns_1(tmp_path) -> None:
+    # 配置缺失 -> 码 1（版本号缺省已合法，走配置加载失败路径）
     assert cli.main(["publish-client", "-c", str(tmp_path / "nope.json")]) == 1
 
 

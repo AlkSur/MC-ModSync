@@ -187,10 +187,40 @@ def test_readd_removes_from_delete(pub) -> None:
     assert "mods/b.jar" in [f["path"] for f in v["files"]]
 
 
-def test_missing_version_fails(pub) -> None:
+def test_missing_version_auto_increments(pub) -> None:
+    """--version 缺省 -> 首次发布 1.0.0，之后自动 +1。"""
     _put(pub, {"a.jar": b"A1"})
+    assert _publish(pub, "") == 0
+    assert "manifests/1.0.0.json" in pub["store"].objs
+    ptr = json.loads(pub["store"].get_text("manifest.json"))
+    assert ptr["latest"] == "1.0.0"
+
+    _put(pub, {"a.jar": b"A2"})
+    assert _publish(pub, "") == 0
+    ptr = json.loads(pub["store"].get_text("manifest.json"))
+    assert ptr["latest"] == "1.0.1"
+
+
+def test_next_version_carry_rules() -> None:
+    """进位规则: C 满 6 进 B、B 满 9 进 A。"""
+    assert publisher.next_version("") == "1.0.0"          # 首次发布
+    assert publisher.next_version("1.0.4") == "1.0.5"
+    assert publisher.next_version("1.1.5") == "1.1.6"
+    assert publisher.next_version("1.1.6") == "1.2.0"     # C 满 6 进位
+    assert publisher.next_version("1.9.6") == "2.0.0"     # B 满 9 进位
+    assert publisher.next_version("9.9.5") == "9.9.6"
     with pytest.raises(publisher.PublishError):
-        _publish(pub, "")
+        publisher.next_version("9.9.6")                   # 已达上限
+    with pytest.raises(publisher.PublishError):
+        publisher.next_version("2.3.9")                   # 旧版本本身非法
+
+
+def test_validate_version_format() -> None:
+    assert publisher.validate_version("1.2.3") == "1.2.3"
+    assert publisher.validate_version(" 9.9.6 ") == "9.9.6"
+    for bad in ("0.1.0", "1.10.0", "1.2", "1.2.7", "v1.2.3", ""):
+        with pytest.raises(publisher.PublishError):
+            publisher.validate_version(bad)
 
 
 def test_dry_run_no_writes(pub) -> None:
@@ -364,7 +394,7 @@ def test_gc_removes_unreferenced_blobs_and_old_manifests(pub) -> None:
     assert old_blob not in store.objs, "不再被引用的旧 blob 应被删除"
     assert _blob_key(_sha(b"A2")) in store.objs, "新 blob 必须保留"
     assert _blob_key(_sha(b"B1")) in store.objs, "仍被引用的 blob 必须保留"
-    assert "manifests/1.0.0.json" not in store.objs, "旧版本清单应被删除"
+    assert "manifests/1.0.0.json" in store.objs, "历史版本清单应保留（可追溯更新说明）"
     assert "manifests/1.0.1.json" in store.objs
     assert "manifest.json" in store.objs, "指针必须保留"
 
@@ -377,3 +407,28 @@ def test_gc_can_be_disabled(pub) -> None:
     assert _publish(pub, "1.0.1", gc=False) == 0
     assert old_blob in pub["store"].objs, "gc=False 时应保留旧 blob"
     assert "manifests/1.0.0.json" in pub["store"].objs
+
+
+def test_log_shows_only_current_version_deletes(pub) -> None:
+    """终端只显示本版 vs 上一版的差异；历史继承的删除不重复打印，清单仍完整保留。"""
+    _put(pub, {"a.jar": b"A1", "b.jar": b"B1"})
+    assert _publish(pub, "1.0.0") == 0
+
+    _put(pub, {"a.jar": b"A1"})                    # 本版删除 b
+    (pub["src"] / "b.jar").unlink()
+    logs = []
+    assert _publish(pub, "1.0.1", log=logs.append) == 0
+    joined = "\n".join(logs)
+    assert "本版变更: 新增 0、替换 0、删除 1" in joined
+    assert "\n  删除: mods/b.jar\n" in joined
+
+    logs2 = []                                     # 再发一版，无新删除
+    assert _publish(pub, "1.0.2", log=logs2.append) == 0
+    joined2 = "\n".join(logs2)
+    assert "本版变更: 新增 0、替换 0、删除 0" in joined2
+    assert "删除: mods/b.jar" not in joined2, "历史删除不得在终端重复打印"
+    assert "历史删除 1 条沿用旧清单" in joined2
+    # 清单里累计 delete 仍完整保留（玩家升级依赖它）
+    v = json.loads(pub["store"].get_text("manifests/1.0.2.json"))
+    assert [d["path"] for d in v["delete"]] == ["mods/b.jar"]
+    assert v["delete"][0]["deletedInVersion"] == "1.0.1"
