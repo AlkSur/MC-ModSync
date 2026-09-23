@@ -114,7 +114,10 @@ def _now_iso() -> str:
 
 
 def _stamp(now: Optional[float] = None) -> str:
-    return datetime.fromtimestamp(now if now is not None else time.time()).strftime("%Y%m%d-%H%M%S")
+    # 秒级 + 毫秒后缀：同一秒内多次同步时目录名仍单调递增，
+    # 保证 _prune_backups 的字典序排序 == 创建顺序（否则同秒内新备份反被当作最旧清理）。
+    t = now if now is not None else time.time()
+    return datetime.fromtimestamp(t).strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(t * 1000) % 1000)
 
 
 def _read_json(path: str) -> Optional[dict]:
