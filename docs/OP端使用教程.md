@@ -210,8 +210,8 @@ cd F:\Storage\ai\plugins-Dev\mc-modsync      # 进仓库目录（必须，程序
 | 2 | `mcmodsync push-server --dry-run` | 只看会改什么，不写任何东西 | 几秒 |
 | 3 | `mcmodsync push-server` | 推送服务端（只传变化的 jar） | 几秒~几分钟 |
 | 4 | （手动）**重启 MC 服务器**，日志看到 `Done (` | 亲眼确认服务端没问题 | — |
-| 5 | `mcmodsync publish-client --dry-run` | 只看客户端会发布什么，不写任何东西 | 几秒 |
-| 6 | `mcmodsync publish-client --notes "更新了XX"` | 发布客户端（版本号自动 +1） | 首次几分钟，之后几十秒 |
+| 5 | `mcmodsync publish-client --dry-run` | 预览 + **缓存来源索引反查结果**（这一步最耗时） | 几秒~两分钟 |
+| 6 | `mcmodsync publish-client --notes "更新了XX"` | 发布客户端（版本号自动 +1，**复用第 5 步缓存秒过反查**） | 几十秒 |
 | 7 | （手动）通知玩家双击"更新mod" | 玩家侧增量更新 | — |
 
 > **为什么第 4 步不能跳**：客户端发布是不可逆的分发动作。必须等服务端重启验证通过再发布，
@@ -309,6 +309,13 @@ mcmodsync publish-client --notes "更新了XX，移除了XX"
 
 `--notes` 写的是本次更新说明，会随版本清单永久保存在对象存储里，之后可随时回查每个版本改了什么。终端只显示本版相对上一版的新增/替换/删除；历史遗留的删除记录不会重复打印，但玩家升级清单里仍然完整保留。
 
+> **两步必须同一个终端窗口、间隔不超过 30 分钟**：`--dry-run` 会把最耗时的"来源索引反查"结果缓存到 `.publish-dryrun-cache.json`，正式发布直接复用、不再联网反查。以下任一情况都会被拒绝并要求重新 dry-run：
+> - 换了终端窗口跑正式发布（防跨窗口误用）；
+> - dry-run 之后又动了 `client-mods/` 里的 jar；
+> - 云端清单被别的发布更新过（防覆盖别人的版本）；
+> - 距 dry-run 超过 30 分钟。
+> 发布成功后缓存自动作废。确实不想更新来源索引时，用 `publish-client --no-resolve` 可跳过这套流程直接发布。
+
 #### 顺带更新"下载源索引"（自动，不用管）
 
 发布时还会覆盖上传一份 `sources.json`（**下载源索引**，与清单同一个目录）。玩家端每次同步前拉一次，命中平台直链就从 Modrinth / CurseForge 官方 CDN 下载，失败**自动静默回落**对象存储 —— 传输链路对玩家完全无感，只是帮你省对象存储的出网流量。索引只对**本次变更**的 mod 联网反查，其余从上一版按哈希继承。
@@ -338,7 +345,7 @@ mcmodsync publish-client --notes "更新了XX，移除了XX"
 | `mcmodsync push-server` | 推送服务端 mod 到 MC 服务器 |
 | `mcmodsync push-server --dry-run` | 只看不改 |
 | `mcmodsync rollback-server` | 回滚服务端到上一版 |
-| `mcmodsync publish-client --dry-run` | 预览客户端会发布什么（不写任何东西） |
+| `mcmodsync publish-client --dry-run` | 预览客户端会发布什么（不写任何东西），并**缓存来源索引供正式发布复用** |
 | `mcmodsync publish-client --notes "..."` | 发布客户端到对象存储（版本号自动 +1） |
 | `mcmodsync publish-client --version 2.0.0 --notes "..."` | 手动指定版本号发布（格式 A.B.C：A=1-9、B=0-9、C=0-6） |
 | `mcmodsync publish-client --no-resolve` | 本次不更新下载源索引（线上旧索引保持不变） |

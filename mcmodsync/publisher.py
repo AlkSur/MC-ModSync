@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import posixpath
@@ -339,6 +340,117 @@ def save_publish_state(path: str, manifest_obj: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# dry-run 来源索引缓存（两步发布：--dry-run 反查 → 正式发布复用）
+# ---------------------------------------------------------------------------
+
+DRYRUN_CACHE_FILE = ".publish-dryrun-cache.json"
+DRYRUN_CACHE_TTL = 30 * 60          # 秒；同一窗口内超过此时长须重新 dry-run
+
+
+def _parent_creation_time(pid: int) -> str:
+    """父进程创建时刻（防 PID 复用误判）；取不到返回空串。"""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            k = ctypes.windll.kernel32
+            k.OpenProcess.restype = wintypes.HANDLE
+            k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            k.GetProcessTimes.restype = wintypes.BOOL
+            k.GetProcessTimes.argtypes = [wintypes.HANDLE] + \
+                [ctypes.POINTER(wintypes.FILETIME)] * 4
+            h = k.OpenProcess(0x1000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return ""
+            try:
+                ct, et, kt, ut = (wintypes.FILETIME() for _ in range(4))
+                if not k.GetProcessTimes(h, ctypes.byref(ct), ctypes.byref(et),
+                                         ctypes.byref(kt), ctypes.byref(ut)):
+                    return ""
+                return "%d-%d" % (ct.dwHighDateTime, ct.dwLowDateTime)
+            finally:
+                k.CloseHandle(h)
+        with open("/proc/%d/stat" % pid, "rb") as f:  # POSIX: 第 22 字段 = 启动时刻
+            fields = f.read().rsplit(b")", 1)[-1].split()
+        return fields[19].decode() if len(fields) > 19 else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _session_token() -> str:
+    """当前终端会话标识：父进程 PID + 父进程创建时间。
+
+    CLI 由终端 shell（powershell/cmd）直接启动，父进程即终端窗口里的 shell ——
+    同一窗口两次运行 getppid() 相同；新开窗口是新 shell，PID 不同。
+    """
+    ppid = os.getppid() or 0
+    return "%s|%s" % (ppid, _parent_creation_time(ppid))
+
+
+def _files_digest(files: List[dict]) -> str:
+    """扫描结果的摘要：任一 jar 增/删/改都会变化。"""
+    h = hashlib.sha256()
+    for f in sorted(files, key=lambda e: e["path"]):
+        h.update(("%s|%s|%d\n" % (f["path"], f["sha256"], int(f["size"]))).encode("utf-8"))
+    return h.hexdigest()
+
+
+def _cache_path(state_file: str) -> str:
+    """缓存放在发布状态文件同目录（= pack 根目录）。"""
+    return os.path.join(os.path.dirname(os.path.abspath(state_file or ".")),
+                        DRYRUN_CACHE_FILE)
+
+
+def _save_dryrun_cache(path: str, base_version: str, files: List[dict],
+                       index_obj: dict) -> None:
+    obj = {
+        "schemaVersion": 1,
+        "createdAt": int(time.time()),
+        "sessionToken": _session_token(),
+        "filesDigest": _files_digest(files),
+        "baseVersion": str(base_version or ""),
+        "index": index_obj,
+    }
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+    os.replace(tmp, path)
+
+
+def _load_valid_dryrun_cache(path: str, files: List[dict],
+                             base_version: str) -> Tuple[Optional[dict], Optional[str]]:
+    """校验并加载缓存。返回 (cache_obj, None) 或 (None, 不通过原因)。"""
+    try:
+        with open(path, "rb") as f:
+            obj = json.loads(f.read().decode("utf-8"))
+    except FileNotFoundError:
+        return None, "未找到 dry-run 缓存"
+    except Exception as e:  # noqa: BLE001
+        return None, "缓存损坏: %s" % e
+    if obj.get("sessionToken") != _session_token():
+        return None, "终端会话不一致（dry-run 不是在当前终端窗口执行的）"
+    age = int(time.time()) - int(obj.get("createdAt") or 0)
+    if age < 0 or age > DRYRUN_CACHE_TTL:
+        return None, "缓存已过期（超过 %d 分钟）" % (DRYRUN_CACHE_TTL // 60)
+    if obj.get("filesDigest") != _files_digest(files):
+        return None, "dry-run 之后客户端源目录已变动"
+    if str(obj.get("baseVersion") or "") != str(base_version or ""):
+        return None, "云端基准清单已变化（可能其他端已发布新版本）"
+    if not isinstance(obj.get("index"), dict) or \
+            not isinstance(obj["index"].get("sources"), dict):
+        return None, "缓存缺少索引数据"
+    return obj, None
+
+
+def _clear_dryrun_cache(path: str) -> None:
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # 编排
 # ---------------------------------------------------------------------------
 
@@ -349,12 +461,14 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
                    local_manifest: Optional[dict] = None,
                    lock_path: str = "mods.lock.json", gc: bool = True,
                    resolve: bool = True, backfill: bool = False,
-                   no_cf: bool = False) -> int:
+                   no_cf: bool = False,
+                   require_dryrun_cache: bool = False) -> int:
     pack_id = cfg["packId"]
     client_cfg = cfg["client"]
     mods_dir = cfg["server"].get("modsDir", "mods")
     source_dir = client_cfg["sourceModsDir"]
     state_file = client_cfg.get("clientStateFile") or "./client-publish-state.json"
+    cache_path = _cache_path(state_file)
     concurrency = int(cfg.get("concurrency", {}).get("upload", 4))
 
     # 步骤1 扫描客户端源目录
@@ -425,14 +539,27 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
 
     # 步骤4.6 下载源索引（C 端多源下载用；纯优化层，失败不影响发布）
     index_obj: Optional[dict] = None
+    base_version = (old or {}).get("version", "")
     if resolve:
-        try:
-            index_obj, _st = resolve_index_for_publish(
-                cfg, store, version, files, log,
-                backfill=backfill, no_cf=no_cf, lock_path=lock_path)
-        except Exception as e:  # noqa: BLE001  索引只是加速层，绝不阻断发布
-            log("警告: 来源索引生成失败（不影响本次发布，玩家将全部回落对象存储）: %s" % e)
-            index_obj = None
+        if require_dryrun_cache:
+            # 两步发布：正式发布必须先在**同一终端窗口**跑过 --dry-run 且条件未变
+            cached, reason = _load_valid_dryrun_cache(cache_path, files, base_version)
+            if cached is None:
+                raise PublishError(
+                    EXIT_GENERIC,
+                    "正式发布要求先执行 publish-client --dry-run（原因: %s）" % reason)
+            index_obj = cached["index"]
+            age = max(0, int(time.time()) - int(cached.get("createdAt") or 0))
+            log("已复用 dry-run 来源索引（%d 条，%d 分钟前），跳过反查"
+                % (len(index_obj["sources"]), age // 60))
+        else:
+            try:
+                index_obj, _st = resolve_index_for_publish(
+                    cfg, store, version, files, log,
+                    backfill=backfill, no_cf=no_cf, lock_path=lock_path)
+            except Exception as e:  # noqa: BLE001  索引只是加速层，绝不阻断发布
+                log("警告: 来源索引生成失败（不影响本次发布，玩家将全部回落对象存储）: %s" % e)
+                index_obj = None
     else:
         log("已指定 --no-resolve：跳过来源索引（线上旧索引保持不变）")
 
@@ -455,6 +582,14 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
             log("[dry-run] 不上传来源索引（--no-resolve 或生成失败）")
         log("[dry-run] 将上传 blob %d 个（%d 字节），已存在跳过 %d 个"
             % (len(to_upload), total, len(needed) - len(to_upload)))
+        if resolve and index_obj is not None:
+            try:
+                _save_dryrun_cache(cache_path, base_version, files, index_obj)
+                log("[dry-run] 来源索引已缓存（%d 条）—— 请在**同一终端窗口**执行正式发布以复用，"
+                    "超过 %d 分钟需重新 dry-run"
+                    % (len(index_obj["sources"]), DRYRUN_CACHE_TTL // 60))
+            except Exception as e:  # noqa: BLE001
+                log("[dry-run] 缓存写入失败（正式发布将重新反查）: %s" % e)
         log("[dry-run] 未执行任何写操作")
         return EXIT_OK
 
@@ -523,6 +658,9 @@ def publish_client(cfg, store, version: str = "", conn=None, notes: str = "",
 
     log("publish-client 完成: version=%s files=%d 本版删除=%d 清单累计删除=%d"
         % (version, len(files), len(newly_deleted), len(delete)))
+
+    # 步骤10 作废 dry-run 缓存：本次发布已落地，下次发布必须重新 dry-run
+    _clear_dryrun_cache(cache_path)
     return EXIT_OK
 
 

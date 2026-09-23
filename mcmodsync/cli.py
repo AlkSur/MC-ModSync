@@ -291,7 +291,11 @@ def cmd_publish_client(args) -> int:
                                         gc=not getattr(args, "no_gc", False),
                                         resolve=not getattr(args, "no_resolve", False),
                                         backfill=getattr(args, "backfill", False),
-                                        no_cf=getattr(args, "no_cf", False))
+                                        no_cf=getattr(args, "no_cf", False),
+                                        # 两步发布：正式发布必须先在当前终端窗口跑过 --dry-run
+                                        #（不需要反查的 --no-resolve 除外）
+                                        require_dryrun_cache=(not args.dry_run)
+                                        and (not getattr(args, "no_resolve", False)))
     except publisher.PublishError as e:
         logger.info("publish-client 失败（码 %s）: %s" % (e.exit_code, e))
         return e.exit_code

@@ -9,6 +9,9 @@ build/
 __pycache__/
 *.pyc
 client-publish-state.json
+
+# publish-client 两步发布的 dry-run 来源索引缓存（本机中间产物，禁止入库）
+.publish-dryrun-cache.json
 server-mods/
 client-mods/
 *.egg-info/

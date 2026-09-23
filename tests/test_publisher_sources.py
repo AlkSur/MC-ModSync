@@ -253,3 +253,115 @@ def test_rebuild_sources_dry_run_writes_nothing(pub, monkeypatch) -> None:
 def test_rebuild_sources_empty_dir_raises(pub) -> None:
     with pytest.raises(publisher.PublishError):
         publisher.rebuild_sources(pub["cfg"], pub["store"], log=lambda m: None)
+
+
+# --------------------------------------------------------------------------
+# 两步发布：--dry-run 缓存来源索引，正式发布在同一终端窗口复用
+# --------------------------------------------------------------------------
+
+def _cache_of(pub):
+    import os
+    p = os.path.join(os.path.dirname(os.path.abspath(pub["cfg"]["client"]["clientStateFile"])),
+                     publisher.DRYRUN_CACHE_FILE)
+    return p
+
+
+def test_dryrun_writes_cache(pub, monkeypatch) -> None:
+    (pub["src"] / "a.jar").write_bytes(b"A")
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources",
+                        lambda *a, **kw: ({sha(b"A"): {"source": "modrinth",
+                                                       "downloadUrl": A_URL,
+                                                       "fileName": "a.jar"}},
+                                          _stats(modrinth=1)))
+    assert _publish(pub, "1.0.0", dry_run=True) == 0
+    with open(_cache_of(pub), "rb") as f:
+        cache = json.loads(f.read().decode("utf-8"))
+    assert cache["baseVersion"] == ""
+    assert set(cache["index"]["sources"]) == {sha(b"A")}
+    assert cache["sessionToken"] == publisher._session_token()
+    # dry-run 不上传任何东西
+    assert pub["store"].order == []
+
+
+def test_publish_requires_prior_dryrun(pub, monkeypatch) -> None:
+    (pub["src"] / "a.jar").write_bytes(b"A")
+
+    def _boom(*a, **kw):
+        raise AssertionError("未跑 dry-run 时不应触发反查")
+
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources", _boom)
+    with pytest.raises(publisher.PublishError) as ei:
+        _publish(pub, "1.0.0", require_dryrun_cache=True)
+    assert "dry-run" in str(ei.value)
+    assert pub["store"].order == []          # 未上传任何对象
+
+
+def test_publish_reuses_dryrun_cache(pub, monkeypatch) -> None:
+    (pub["src"] / "a.jar").write_bytes(b"A")
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources",
+                        lambda *a, **kw: ({sha(b"A"): {"source": "modrinth",
+                                                       "downloadUrl": A_URL,
+                                                       "fileName": "a.jar"}},
+                                          _stats(modrinth=1)))
+    assert _publish(pub, "1.0.0", dry_run=True) == 0
+
+    def _boom(*a, **kw):
+        raise AssertionError("命中缓存时不应再反查")
+
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources", _boom)
+    assert _publish(pub, "1.0.0", require_dryrun_cache=True) == 0
+    idx = _index_of(pub["store"])
+    assert idx["sources"][sha(b"A")]["downloadUrl"] == A_URL
+    import os
+    assert not os.path.isfile(_cache_of(pub)), "发布成功后缓存应作废"
+
+
+def test_publish_rejects_changed_files_after_dryrun(pub, monkeypatch) -> None:
+    (pub["src"] / "a.jar").write_bytes(b"A")
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources",
+                        lambda *a, **kw: ({sha(b"A"): {"source": "modrinth",
+                                                       "downloadUrl": A_URL}},
+                                          _stats(modrinth=1)))
+    assert _publish(pub, "1.0.0", dry_run=True) == 0
+    (pub["src"] / "b.jar").write_bytes(b"B")          # dry-run 后源目录变动
+    with pytest.raises(publisher.PublishError) as ei:
+        _publish(pub, "1.0.0", require_dryrun_cache=True)
+    assert "变动" in str(ei.value)
+
+
+def test_publish_rejects_expired_cache(pub, monkeypatch) -> None:
+    (pub["src"] / "a.jar").write_bytes(b"A")
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources",
+                        lambda *a, **kw: ({sha(b"A"): {"source": "modrinth",
+                                                       "downloadUrl": A_URL}},
+                                          _stats(modrinth=1)))
+    assert _publish(pub, "1.0.0", dry_run=True) == 0
+    import os, time
+    p = _cache_of(pub)
+    with open(p, "rb") as f:
+        obj = json.loads(f.read().decode("utf-8"))
+    obj["createdAt"] = int(time.time()) - publisher.DRYRUN_CACHE_TTL - 10
+    with open(p, "wb") as f:
+        f.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+    with pytest.raises(publisher.PublishError) as ei:
+        _publish(pub, "1.0.0", require_dryrun_cache=True)
+    assert "过期" in str(ei.value)
+
+
+def test_publish_rejects_other_terminal_session(pub, monkeypatch) -> None:
+    (pub["src"] / "a.jar").write_bytes(b"A")
+    monkeypatch.setattr(publisher.source_resolve, "resolve_sources",
+                        lambda *a, **kw: ({sha(b"A"): {"source": "modrinth",
+                                                       "downloadUrl": A_URL}},
+                                          _stats(modrinth=1)))
+    assert _publish(pub, "1.0.0", dry_run=True) == 0
+    import os
+    p = _cache_of(pub)
+    with open(p, "rb") as f:
+        obj = json.loads(f.read().decode("utf-8"))
+    obj["sessionToken"] = "999999|fake"               # 模拟换终端窗口
+    with open(p, "wb") as f:
+        f.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+    with pytest.raises(publisher.PublishError) as ei:
+        _publish(pub, "1.0.0", require_dryrun_cache=True)
+    assert "终端会话" in str(ei.value)
