@@ -163,7 +163,7 @@ C 端会去下一个 HTML 页面 → sha256 不符 → 白白浪费一次请求�
 |---|---|
 | 对象存储 key | `sources.json`（与 `manifest.json` 同级，pack 根） |
 | 公网 URL | `<manifestUrl 的目录>/sources.json`，即 `blob_base_of(pointer_url) + "/sources.json"` |
-| 当前实例 | `https://server-mods-u0demo00.cdn.7caiyun.com/packs/0123456789abcdef/sources.json` |
+| 当前实例 | `https://<你的CDN域名>/packs/<实例ID>/sources.json` |
 | 缓存控制 | `public, max-age=300`（与版本清单一致；**不可**用 blob 的 immutable） |
 | 权限 | 只有 A 端持 AK/SK，公开读不可写 |
 
@@ -174,7 +174,7 @@ C 端会去下一个 HTML 页面 → sha256 不符 → 白白浪费一次请求�
 ```json
 {
   "schemaVersion": 1,
-  "packId": "demo-pack",
+  "packId": "<你的packId>",
   "generatedForVersion": "1.0.6",
   "updatedAt": "2026-09-22T15:31:00+08:00",
   "sources": {

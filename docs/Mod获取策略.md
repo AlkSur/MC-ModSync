@@ -15,7 +15,7 @@
 
 | 项 | 值 | 依据 |
 | --- | --- | --- |
-| Minecraft 版本 | **1.21.1** | 服务端 `/www/demo-pack1.1.12/mods` 内文件名，如 `alloy_smelter-neoforge-1.21.1-1.1.2.jar`、`ApothicAttributes-1.21.1-2.9.1.jar` |
+| Minecraft 版本 | **1.21.1** | 服务端 `/www/<服务端目录>/mods` 内文件名，如 `alloy_smelter-neoforge-1.21.1-1.1.2.jar`、`ApothicAttributes-1.21.1-2.9.1.jar` |
 | 加载器 | **neoforge** | 同上，如 `architectury-13.0.8-neoforge.jar` |
 
 > 注: 计划 [3.12] 的示例值为 `1.20.1`，仅为样例；实际取值以上表实测为准。本记录不修改计划原文（R-4）。
@@ -67,8 +67,8 @@
 
 ## 8. CurseForge 真机验证记录（T-32，2026-09-18）
 
-apiKey（PRE-5）已配置于 `pack.local.json` → `curseforge.apiKey`（长度 60，`$2a$10$` 前缀，
-bcrypt 样式），该文件已被 `.gitignore` 覆盖，不入库。
+apiKey（PRE-5）已配置于 `pack.local.json` → `curseforge.apiKey`，
+该文件已被 `.gitignore` 覆盖，不入库。
 
 真机结论（Minecraft 1.21.1 / NeoForge）：
 

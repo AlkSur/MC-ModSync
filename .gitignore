@@ -25,7 +25,9 @@ ssh.json
 .venv/
 venv/
 
-# 脚本中间产物（正式清单 mods.lock.json 需入库，generated 是临时文件）
+# 脚本中间产物：mods.lock.json 由 gen_lock 按本机客户端 mod 目录生成，
+# 含服务器 mod 构成信息，属隐私，禁止入库（2026-09-23 修订）。
+mods.lock.json
 mods.lock.generated.json
 
 # 杂项
