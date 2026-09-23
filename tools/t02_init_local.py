@@ -3,7 +3,12 @@
 凭证策略:
   - SSH 凭证只从 ssh.json 读取（脚本内使用，绝不打印）。
   - 对象存储 AK/SK 从环境变量 MCMS_AK / MCMS_SK 读取（脚本内使用，绝不打印）。
+  - 业务标识（packId / bucket / publicBase 等）从 ssh.json 的可选字段读取，
+    脚本内不硬编码任何真实值；缺失时报错提示补字段或用命令行参数传入。
   - 产物 pack.local.json 仅供本机使用，必须被 .gitignore 覆盖（AC-6）。
+
+ssh.json 可选字段:
+  packId / packName / bucket / publicBase / endpoint / region
 
 用法:
   MCMS_AK=... MCMS_SK=... python tools/t02_init_local.py --ssh-json ssh.json
@@ -20,20 +25,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcmodsync import signing  # noqa: E402
 
-PUBLIC_BASE = "default-u0demo00.cdn.7caiyun.com"
+
+def _pick(cli_val: str, ssh: dict, key: str, required: bool) -> str:
+    """命令行参数优先，其次 ssh.json 可选字段，都没有则报错（required）或返回空。"""
+    if cli_val:
+        return cli_val
+    v = str(ssh.get(key, "") or "").strip()
+    if v:
+        return v
+    if required:
+        raise SystemExit(
+            "缺少 %s：请在 %s 中加 \"%s\" 字段，或用命令行参数指定" % (key, "ssh.json", key)
+        )
+    return ""
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="T-02 本机初始化")
     ap.add_argument("--ssh-json", default="ssh.json")
     ap.add_argument("--out", default="pack.local.json")
-    ap.add_argument("--pack-id", default="demo-pack")
-    ap.add_argument("--pack-name", default="我的整合包整合包")
+    ap.add_argument("--pack-id", default="", help="缺省读 ssh.json 的 packId")
+    ap.add_argument("--pack-name", default="", help="缺省读 ssh.json 的 packName，再缺省用『我的整合包』")
     ap.add_argument("--prefix", default="", help="留空则随机生成 packs/<hex>/")
-    ap.add_argument("--endpoint", default="https://s3.7caiyun.com")
-    ap.add_argument("--region", default="us-west")
-    ap.add_argument("--bucket", default="default-u0demo00")
-    ap.add_argument("--public-base", default=PUBLIC_BASE)
+    ap.add_argument("--endpoint", default="", help="缺省读 ssh.json 的 endpoint，再缺省 https://s3.7caiyun.com")
+    ap.add_argument("--region", default="", help="缺省读 ssh.json 的 region，再缺省 us-west")
+    ap.add_argument("--bucket", default="", help="缺省读 ssh.json 的 bucket")
+    ap.add_argument("--public-base", default="", help="缺省读 ssh.json 的 publicBase")
     ap.add_argument("--server-root", default="", help="留空则取 ssh.json 的 serverRootDir")
     ap.add_argument("--history-dir", default="/www/mcmodsync-history")
     ap.add_argument("--remote-b-path", default="/www/mcmodsync-b.py")
@@ -55,6 +72,13 @@ def main() -> int:
         if not ssh.get(k):
             raise SystemExit("ssh.json 缺少字段: %s" % k)
 
+    pack_id = _pick(args.pack_id, ssh, "packId", required=True)
+    bucket = _pick(args.bucket, ssh, "bucket", required=True)
+    public_base = _pick(args.public_base, ssh, "publicBase", required=True)
+    pack_name = _pick(args.pack_name, ssh, "packName", required=False) or "我的整合包"
+    endpoint = _pick(args.endpoint, ssh, "endpoint", required=False) or "https://s3.7caiyun.com"
+    region = _pick(args.region, ssh, "region", required=False) or "us-west"
+
     server_root = (args.server_root or ssh["serverRootDir"]).rstrip("/")
     prefix = args.prefix or ("packs/%s/" % secrets.token_hex(8))
 
@@ -73,8 +97,8 @@ def main() -> int:
         pub_b64 = base64.b64encode(k.public_key().public_bytes_raw()).decode("ascii")
 
     cfg = {
-        "packId": args.pack_id,
-        "packName": args.pack_name,
+        "packId": pack_id,
+        "packName": pack_name,
         "server": {
             "host": ssh["ip"],
             "port": int(ssh["port"]),
@@ -92,7 +116,7 @@ def main() -> int:
         },
         "client": {
             "sourceModsDir": "./client-mods",
-            "manifestUrl": "https://%s/%smanifest.json" % (args.public_base, prefix),
+            "manifestUrl": "https://%s/%smanifest.json" % (public_base, prefix),
             "publicKey": pub_b64,
             "clientStateFile": "./client-publish-state.json",
         },
