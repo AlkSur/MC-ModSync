@@ -282,18 +282,6 @@ def test_lock_manual_version_not_polluted_by_jar_suffix(env, fake_providers) -> 
     assert ver == "1.12.4-mc1.21.1", ver
 
 
-def test_lock_stale_hint(env, fake_providers) -> None:
-    m = os.path.getmtime(env["lock"])
-    jar = env["server"] / "newer.jar"
-    jar.write_bytes(b"X")
-    os.utime(jar, (m + 10, m + 10))
-    hint = fetcher.lock_stale_hint(env["cfg"], str(env["lock"]))
-    assert hint and "fetch-mods" in hint
-    os.utime(env["lock"], (m + 100, m + 100))
-    assert fetcher.lock_stale_hint(env["cfg"], str(env["lock"])) is None
-    assert fetcher.lock_stale_hint(env["cfg"], str(env["tmp"] / "none.json")) is None
-
-
 # --------------------------------------------------------------------------
 # T-35: fetch-mods -> push-server 端到端（增量只推变更 jar）
 # --------------------------------------------------------------------------
@@ -338,8 +326,7 @@ def test_t35_e2e_fetch_then_push_incremental(tmp_path, fake_providers) -> None:
 
     conn = LocalConn(remote)
     assert pusher.push_server(cfg, conn, log=logs.append, tmp_dir=str(tmp_run),
-                              log_dir=str(tmp_path / "logs"),
-                              lock_path=str(lock)) == 0
+                              log_dir=str(tmp_path / "logs")) == 0
     hist = remote / "www/mcmodsync-history/t35-pack"
     v1 = sorted(hist.iterdir())[0]
     ch1 = json.loads((v1 / "changes.json").read_text(encoding="utf-8"))
@@ -353,21 +340,21 @@ def test_t35_e2e_fetch_then_push_incremental(tmp_path, fake_providers) -> None:
 
     assert fetcher.fetch_mods(cfg, str(lock), log=logs.append, tmp_dir=str(tmp_run)) == 0
     assert pusher.push_server(cfg, conn, log=logs.append, tmp_dir=str(tmp_run),
-                              log_dir=str(tmp_path / "logs"),
-                              lock_path=str(lock)) == 0
+                              log_dir=str(tmp_path / "logs")) == 0
     v2 = sorted(hist.iterdir())[1]
     ch2 = json.loads((v2 / "changes.json").read_text(encoding="utf-8"))
     assert [e["path"] for e in ch2["changes"]["added"]] == []
     assert [e["path"] for e in ch2["changes"]["replaced"]] == ["mods/mr-a.jar"]
     assert ch2["changes"]["deleted"] == []
 
-    # 联动提示: 手工把源目录 jar 变新 -> push 输出 warning（不阻断）
+    # 2026-09-23: 联动提示已移除（用户决定不再使用 fetch-mods）——
+    # 手工把源目录 jar 变新，push 输出里不应再出现"建议先执行 fetch-mods"类警告。
     os.utime(server_src / "mr-b.jar", (os.path.getmtime(lock) + 50,) * 2)
     logs2: list = []
     assert pusher.push_server(cfg, conn, dry_run=True, log=logs2.append,
-                              tmp_dir=str(tmp_run), log_dir=str(tmp_path / "logs"),
-                              lock_path=str(lock)) == 0
-    assert any("mod 列表未刷新" in m for m in logs2)
+                              tmp_dir=str(tmp_run), log_dir=str(tmp_path / "logs")) == 0
+    assert not any("mod 列表未刷新" in m for m in logs2)
+    assert not any("fetch-mods" in m for m in logs2)
 
 
 def test_lock_manual_ambiguous_lists_candidates(env, fake_providers) -> None:

@@ -59,32 +59,6 @@ def save_lock(path: str, doc: dict) -> None:
 # 路由与落盘
 # ---------------------------------------------------------------------------
 
-def lock_stale_hint(cfg, lock_path: str = "mods.lock.json") -> Optional[str]:
-    """[T-35] 联动提示: mods.lock.json 存在且源目录最近 jar 比它新 -> 返回提示语。
-
-    仅提示（warning），不阻断 push-server / publish-client。
-    """
-    if not lock_path or not os.path.isfile(lock_path):
-        return None
-    lock_mtime = os.path.getmtime(lock_path)
-    latest = 0.0
-    for side in ("server", "client"):
-        try:
-            dirs = side_dirs(cfg, side)
-        except FetchError:
-            continue
-        for d in dirs:
-            if not os.path.isdir(d):
-                continue
-            for n in os.listdir(d):
-                if n.lower().endswith(".jar"):
-                    latest = max(latest, os.path.getmtime(os.path.join(d, n)))
-    if latest > lock_mtime:
-        return ("mod 列表未刷新（源目录中的 jar 比 %s 更新），建议先执行 mcmodsync fetch-mods"
-                % os.path.basename(lock_path))
-    return None
-
-
 def side_dirs(cfg, side: str) -> List[str]:
     """side -> 目标目录列表（both 返回两个）。"""
     server_dir = cfg["server"]["sourceModsDir"]

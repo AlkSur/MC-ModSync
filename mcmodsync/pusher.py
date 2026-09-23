@@ -347,19 +347,9 @@ def rollback_server(cfg, conn, log=print) -> int:
             conn.close()
 
 
-def lock_mtime_hint(cfg, lock_path: str = "mods.lock.json") -> Optional[str]:
-    """[T-35] 联动提示（warning，不阻断）。"""
-    try:
-        from . import fetcher
-        return fetcher.lock_stale_hint(cfg, lock_path)
-    except Exception:
-        return None
-
-
 def push_server(cfg, conn, dry_run: bool = False, check_server_client: bool = False,
                 accept_new_host: bool = True, log=print,
-                tmp_dir: Optional[str] = None, log_dir: str = ".mcmodsync/logs",
-                lock_path: str = "mods.lock.json") -> int:
+                tmp_dir: Optional[str] = None, log_dir: str = ".mcmodsync/logs") -> int:
     c = _server_conf(cfg)
     connect = conn is None
     if connect:
@@ -373,9 +363,6 @@ def push_server(cfg, conn, dry_run: bool = False, check_server_client: bool = Fa
             raise PushError(EXIT_GENERIC, "源目录无 *.jar: %s" % c["source_mods"])
         desired_files = to_desired_entries(entries, c["mods_dir"])
         log("源目录扫描: %d 个 jar" % len(desired_files))
-        hint = lock_mtime_hint(cfg, lock_path)
-        if hint:
-            log("警告: " + hint)
 
         desired_map = {e["path"]: e for e in desired_files}
 
