@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -365,3 +366,42 @@ def test_publish_rejects_other_terminal_session(pub, monkeypatch) -> None:
     with pytest.raises(publisher.PublishError) as ei:
         _publish(pub, "1.0.0", require_dryrun_cache=True)
     assert "终端会话" in str(ei.value)
+
+
+def _fake_nt_table(me: int, shim: int, transient: int) -> dict:
+    """模拟真实链路: python <- mcmodsync.exe(shim) <- 临时shell层 <- pwsh <- WindowsTerminal"""
+    return {
+        me: ("python", shim),
+        shim: ("mcmodsync", transient),
+        transient: ("bash", 2000),
+        2000: ("pwsh", 3000),
+        3000: ("windowsterminal", 4000),
+        4000: ("explorer", 0),
+    }
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 进程表方案")
+def test_session_token_stable_across_shim_layers(monkeypatch) -> None:
+    """同一窗口内 shim/临时 shell 层每次都变，token 应取最老的交互 shell（pwsh）。"""
+    me = os.getpid()
+    monkeypatch.setattr(publisher, "_nt_process_table",
+                        lambda: _fake_nt_table(me, 1111, 1000))
+    t1 = publisher._session_token()
+    monkeypatch.setattr(publisher, "_nt_process_table",
+                        lambda: _fake_nt_table(me, 2222, 5555))
+    t2 = publisher._session_token()
+    expect = "2000|%s" % publisher._parent_creation_time(2000)
+    assert t1 == t2 == expect
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 进程表方案")
+def test_session_token_ignores_terminal_host_and_falls_back(monkeypatch) -> None:
+    """链上没有 shell 时回退为最顶层祖先；终端宿主不参与候选。"""
+    me = os.getpid()
+    monkeypatch.setattr(publisher, "_nt_process_table", lambda: {
+        me: ("python", 1111),
+        1111: ("foo", 2222),
+        2222: ("bar", 0),
+    })
+    expect = "2222|%s" % publisher._parent_creation_time(2222)
+    assert publisher._session_token() == expect

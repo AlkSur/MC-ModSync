@@ -377,14 +377,129 @@ def _parent_creation_time(pid: int) -> str:
         return ""
 
 
-def _session_token() -> str:
-    """当前终端会话标识：父进程 PID + 父进程创建时间。
+# 常见 shell 进程名（小写、无 .exe 后缀）
+_SHELL_PROC_NAMES = {
+    "pwsh", "powershell", "cmd", "bash", "zsh", "sh", "fish", "ksh",
+    "dash", "wsl",
+}
+# 终端宿主：同一窗口多标签共用一个进程，不能作为会话标识（会跨标签误判）
+_TERMINAL_HOSTS = {
+    "windowsterminal", "conhost", "wt", "conemu", "cmder",
+    "wezterm-gui", "alacritty", "kitty",
+}
+_SESSION_MAX_DEPTH = 32
 
-    CLI 由终端 shell（powershell/cmd）直接启动，父进程即终端窗口里的 shell ——
-    同一窗口两次运行 getppid() 相同；新开窗口是新 shell，PID 不同。
+
+def _nt_process_table() -> dict:
+    """Windows: 一次快照枚举全部进程 → {pid: (name小写无exe, ppid)}；失败返回空。"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PE32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        k = ctypes.windll.kernel32
+        k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PE32)]
+        k.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PE32)]
+        snap = k.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+        invalid = ctypes.c_void_p(-1).value          # INVALID_HANDLE_VALUE
+        if not snap or snap == invalid:
+            return {}
+        table = {}
+        try:
+            pe = _PE32()
+            pe.dwSize = ctypes.sizeof(_PE32)
+            ok = bool(k.Process32FirstW(snap, ctypes.byref(pe)))
+            while ok:
+                name = pe.szExeFile.lower()
+                if name.endswith(".exe"):
+                    name = name[:-4]
+                table[int(pe.th32ProcessID)] = (
+                    name, int(pe.th32ParentProcessID))
+                ok = bool(k.Process32NextW(snap, ctypes.byref(pe)))
+        finally:
+            k.CloseHandle(snap)
+        return table
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _posix_proc_info(pid: int) -> tuple:
+    """POSIX: 读 /proc/<pid>/stat → (comm小写, ppid)；失败返回空。"""
+    try:
+        with open("/proc/%d/stat" % pid, "rb") as f:
+            raw = f.read()
+        comm = raw[raw.index(b"(") + 1:raw.rindex(b")")].decode(
+            "utf-8", "replace").lower()
+        fields = raw.rsplit(b")", 1)[-1].split()
+        return comm, int(fields[1])             # 第 4 字段 = ppid
+    except Exception:  # noqa: BLE001
+        return ()
+
+
+def _ancestor_chain() -> list:
+    """自身到顶层祖先的链 [(pid, name小写, ppid)]，自近及远，最多 32 层；防环。"""
+    table = _nt_process_table() if os.name == "nt" else None
+    pid = os.getpid()
+    chain = []
+    for _ in range(_SESSION_MAX_DEPTH):
+        if os.name == "nt":
+            entry = table.get(pid) if table else None
+            if not entry:
+                break
+            name, ppid = entry
+        else:
+            info = _posix_proc_info(pid)
+            if not info:
+                break
+            name, ppid = info
+        chain.append((int(pid), name, int(ppid)))
+        nxt = ppid
+        if not nxt or nxt <= 0 or nxt == pid or \
+                any(c[0] == nxt for c in chain):    # 到顶或成环
+            break
+        pid = nxt
+    return chain
+
+
+def _session_token() -> str:
+    """当前终端会话标识：沿祖先链找最老的 shell 进程，取其 PID+创建时间。
+
+    直接父进程不可靠：`mcmodsync` 入口是 pip 生成的启动器 exe，它再拉起
+    python.exe，因此 python 的父进程是每次运行都不同的临时启动器进程，
+    而不是终端窗口里的 shell（实测 pwsh 下 ppid 每次运行都变）。
+    而且 shell 与 python 之间可能还有"每次调用新建"的临时 shell 包装层，
+    所以在祖先链的 shell 候选（pwsh/cmd/bash 等）里取**最老**的一层 ——
+    临时包装进程必然比交互 shell 年轻；同一窗口内交互 shell 稳定不变，
+    新开窗口/新标签则是新进程、PID 不同。终端宿主（WindowsTerminal/
+    conhost 等）多标签共用，不作为候选。找不到 shell 时回退为最顶层祖先。
     """
-    ppid = os.getppid() or 0
-    return "%s|%s" % (ppid, _parent_creation_time(ppid))
+    chain = _ancestor_chain()
+    if not chain:
+        # 进程信息完全取不到：退化为旧的父进程方案
+        ppid = os.getppid() or 0
+        return "%s|%s" % (ppid, _parent_creation_time(ppid))
+    shells = [a for a in chain[1:]
+              if a[1] in _SHELL_PROC_NAMES and a[1] not in _TERMINAL_HOSTS]
+    if shells:
+        chosen = shells[-1]                     # 链自近及远 → 最老的一层
+        return "%s|%s" % (chosen[0], _parent_creation_time(chosen[0]))
+    top = chain[-1]
+    return "%s|%s" % (top[0], _parent_creation_time(top[0]))
 
 
 def _files_digest(files: List[dict]) -> str:
