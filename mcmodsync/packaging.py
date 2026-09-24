@@ -183,6 +183,30 @@ def write_sha256sums(root: str) -> str:
     return path
 
 
+def regenerate_fallback(repo: str = REPO, log: Callable[[str], None] = print) -> str:
+    """用当前源码重建 .py 兜底文件（client/mcmodsync.py），返回其路径。
+
+    兜底脚本是**生成物**：直接拷贝仓库里那份，会在改过 C 端模块后悄悄把旧代码
+    打进分发包（表现为玩家用 .py 兜底时行为与 exe 不一致）。因此在组装前一律重建。
+
+    在非开发目录（没有 tools/build_client.py）使用时不阻断，只警告并沿用现有文件。
+    """
+    gen = os.path.join(repo, "tools", "build_client.py")
+    out = os.path.join(repo, "client", "mcmodsync.py")
+    if not os.path.isfile(gen):
+        log("[WARN] 找不到 tools/build_client.py，跳过 .py 兜底重建（沿用现有 %s）"
+            % os.path.relpath(out, repo))
+        return out
+    r = subprocess.run([sys.executable, gen], cwd=repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        _die("重建 .py 兜底失败（退出码 %d）\n%s"
+             % (r.returncode, (r.stdout or "")[-800:] + (r.stderr or "")[-800:]))
+    note = (r.stdout or "").strip().splitlines()
+    if note:
+        log(note[-1])
+    return out
+
+
 def assemble(config_path: str, out: str, repo: str = REPO,
              exe: Optional[str] = None, no_exe: bool = False,
              fallback: Optional[str] = None, skip_verify: bool = False,
@@ -193,7 +217,7 @@ def assemble(config_path: str, out: str, repo: str = REPO,
 
     # 先完成全部前置校验，再做任何破坏性动作/构建（避免「清空目录并构建 exe 后才发现配置缺失」）
     cfg = render_config(config_path)
-    fb = fallback or a["fallback"]
+    fb = fallback or regenerate_fallback(repo, log)
     for label, path in (("入口脚本", a["bat"]), ("入口脚本", a["sh"]), (".py 兜底", fb)):
         if not os.path.isfile(path):
             _die("缺少%s: %s" % (label, path))

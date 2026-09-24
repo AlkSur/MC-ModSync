@@ -236,12 +236,47 @@ def test_no_downgrade_exit1(env) -> None:
 # TL-5: 游戏运行 / 并发双击
 # --------------------------------------------------------------------------
 
-def test_game_running_exit3(env) -> None:
+def test_game_running_warns_but_still_updates(env) -> None:
+    """游戏运行中不再拦截：给出提示，但照常完成更新。
+
+    Minecraft 只在启动时读一次 mods/，更新会在玩家重启游戏后生效，
+    因此没有理由因为检测到客户端在跑就拒绝更新。
+    """
     env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
     logs = []
-    assert env.inst.sync(log=logs.append, game_running_check=lambda: True) == 3
-    assert env.inst.mod_names() == []
+    assert env.inst.sync(log=logs.append, game_running_check=lambda: True) == 0
+    assert env.inst.mod_names() == ["a.jar"]
+    assert env.inst.mod_bytes("a.jar") == b"A"
     assert any("正在运行" in m for m in logs)
+
+
+def test_game_running_detection_error_does_not_block(env) -> None:
+    """检测函数自身抛异常时也不得影响更新（检测只是提示层）。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+
+    def _boom() -> bool:
+        raise OSError("wmic 不可用")
+
+    assert env.inst.sync(game_running_check=_boom) == 0
+    assert env.inst.mod_bytes("a.jar") == b"A"
+
+
+def test_locked_target_file_gives_actionable_error(env, monkeypatch) -> None:
+    """目标文件被占用时给出可读建议，而不是裸 PermissionError。"""
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    import mcmodsync.client as client_mod
+
+    def _deny(src: str, dst: str) -> None:
+        raise client_mod.ClientError(
+            client_mod.EXIT_GENERIC,
+            "写入失败 %s（[WinError 32] 另一个程序正在使用此文件）。"
+            "该文件可能正被游戏/启动器占用或被安全软件锁定，"
+            "请关闭游戏后重新运行更新器。" % os.path.basename(dst))
+
+    monkeypatch.setattr(client_mod, "_apply_file", _deny)
+    logs = []
+    assert env.inst.sync(log=logs.append) == client_mod.EXIT_GENERIC
+    assert any("请关闭游戏后重新运行更新器" in m for m in logs)
 
 
 def test_concurrent_lock_exit10(env) -> None:

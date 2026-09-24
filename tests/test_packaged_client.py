@@ -16,7 +16,7 @@ import sys
 import pytest
 from charness import PACK_ID, Cloud, make_keys
 
-from mcmodsync import client, packaging
+from mcmodsync import packaging
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG = os.path.join(REPO, "dist", "client-package")
@@ -145,8 +145,6 @@ def test_exe_end_to_end(tmp_path, cloud) -> None:
 
 @pytest.mark.skipif(os.name != "nt", reason="仅 Windows")
 def test_real_bat_double_click_end_to_end(tmp_path, cloud) -> None:
-    if client.detect_game_running():
-        pytest.skip("本机当前有 java/javaw/minecraft 进程，会被游戏运行检测拦截")
     c, pub, base = cloud
     c.publish("1.0.0", FILES)
     inst = _make_instance(tmp_path, base, pub, FILES)

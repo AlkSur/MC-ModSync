@@ -12,7 +12,8 @@ subcommand: sync / verify / rollback / doctor（由 client_main.py 分发）。
   <target>/_updater/backup/<时间戳>/      备份 + changes.json（[3.7]）
 
 退出码: 0 成功 / 1 一般错误（含配置缺失、版本回退拒绝）/ 2 验签失败 /
-        3 游戏运行中 / 4 磁盘不足 / 5 下载失败 / 6 清单 schema 过新 /
+        3 保留未用（早期版本用于"游戏运行中"拦截，现仅提示不拦截）/
+        4 磁盘不足 / 5 下载失败 / 6 清单 schema 过新 /
         7 packId 不符 / 10 锁被占用 / 13 路径不安全 / 99 故障注入。
 
 本模块仅 import 标准库（C 端分发包要求）。
@@ -38,7 +39,7 @@ from . import canonicaljson, hashing, http_download, locking, manifest, paths, s
 EXIT_OK = 0
 EXIT_GENERIC = 1
 EXIT_SIGNATURE = 2
-EXIT_GAME_RUNNING = 3
+EXIT_GAME_RUNNING = 3      # 保留常量：现已不返回（游戏运行只提示、不拦截）
 EXIT_DISK = 4
 EXIT_NETWORK = 5
 EXIT_SCHEMA = 6
@@ -755,11 +756,19 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
                  prefer_platform: bool = True) -> int:
     # 步骤2 配置
     cfg = load_config(target)                            # 缺字段 -> 1
-    # 步骤3 游戏运行检测
+    # 步骤3 游戏运行检测（**仅提示，不拦截**）
+    # Minecraft 只在启动时读一次 mods/ 并加载进内存，游戏运行中替换磁盘上的 jar
+    # 不会影响本次会话，重启游戏后生效。早期版本检测到客户端运行会直接退出(3)，
+    # 对挂机/长期开着的玩家过于苛刻，现改为提示后继续更新。
+    # 检测本身失败（权限/平台差异）绝不影响更新流程。
     check = game_running_check or detect_game_running
-    if check():
-        log("检测到 Minecraft 客户端正在运行，请完全退出游戏后重试。")
-        return EXIT_GAME_RUNNING
+    try:
+        running = bool(check())
+    except Exception:  # noqa: BLE001
+        running = False
+    if running:
+        log("提示: 检测到 Minecraft 客户端正在运行 —— 更新会照常写入磁盘，"
+            "重启游戏后生效；若中途提示文件被占用，请关闭游戏后重试。")
 
     # 步骤4 拉指针 + 版本清单（验签失败 -> 2）
     pointer_url = str(cfg["manifestUrl"])
@@ -941,7 +950,13 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     for e in to_delete:
         p = paths.safe_join(target, e["path"])
         if os.path.isfile(p):
-            os.remove(p)
+            try:
+                os.remove(p)
+            except OSError as ex:
+                raise ClientError(
+                    EXIT_GENERIC,
+                    "删除失败 %s（%s）。该文件可能正被游戏/启动器占用或被安全软件锁定，"
+                    "请关闭游戏后重新运行更新器。" % (os.path.basename(p), ex))
     _fault("mid-apply", log)
 
     # 步骤13 原子写 state
@@ -966,12 +981,26 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
 
 
 def _apply_file(src: str, dst: str) -> None:
-    """临时文件 + os.replace 原子落位。"""
+    """临时文件 + os.replace 原子落位。
+
+    游戏运行中一般不占用 jar 句柄；万一 Windows 上仍被占用（或被杀软/同步盘锁住），
+    os.replace 会失败——这里转成带处置建议的 ClientError，而不是抛裸 OSError。
+    """
     d = os.path.dirname(dst)
     tmp = os.path.join(d, ".%s.tmp-%d" % (os.path.basename(dst), os.getpid()))
     with open(src, "rb") as fi, open(tmp, "wb") as fo:
         shutil.copyfileobj(fi, fo, 1024 * 1024)
-    os.replace(tmp, dst)
+    try:
+        os.replace(tmp, dst)
+    except OSError as e:
+        try:
+            os.remove(tmp)          # 清掉临时文件，不留半成品
+        except OSError:
+            pass
+        raise ClientError(
+            EXIT_GENERIC,
+            "写入失败 %s（%s）。该文件可能正被游戏/启动器占用或被安全软件锁定，"
+            "请关闭游戏后重新运行更新器。" % (os.path.basename(dst), e))
 
 
 # --------------------------------------------------------------------------
