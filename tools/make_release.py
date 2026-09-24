@@ -30,7 +30,6 @@ A_ROOT = "MC-ModSync-A端-OP工具"
 A_FILES = [
     "pyproject.toml",
     "pack.example.json",
-    "mods.lock.json",
     "README.md",
     ".gitignore",
     "server/mcmodsync-b.py",
@@ -71,7 +70,7 @@ A_README = """MC-ModSync · A 端（OP 工具）
   tools\\                gen_lock.py 等运维脚本
   docs\\                 全部文档
   pack.example.json     配置模板
-  mods.lock.json        客户端 mod 清单（初始为空）
+  docs\\Mod获取策略.md    mod 增删改的正确姿势（含 fetch-mods 的定位）
 
 【打包三端发布包】（一条命令）
   1) 先装一次 dev 依赖（含 PyInstaller，打包玩家端 exe 需要）：
@@ -243,6 +242,18 @@ def client_package_stale():
     return False, ""
 
 
+def _missing_pack_inputs():
+    """打包清单里列出但磁盘上不存在的文件（打包前早失败，给出可读提示）。"""
+    missing = []
+    for rel in list(A_FILES) + [os.path.join("tools", t) for t in A_TOOLS]:
+        if not os.path.isfile(os.path.join(REPO, rel)):
+            missing.append(rel)
+    for d in A_DIRS:
+        if not os.path.isdir(os.path.join(REPO, d)):
+            missing.append(d + os.sep)
+    return missing
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="生成 A/B/C 三端发布包（解压即用）")
@@ -279,6 +290,14 @@ def main():
         return 1
 
     os.makedirs(OUT, exist_ok=True)
+    missing = _missing_pack_inputs()
+    if missing:
+        print("打包清单里有文件不存在，已中止（不会生成残缺的三端包）：")
+        for rel in missing:
+            print("  缺少: %s" % rel)
+        print("若这些文件是有意删除的，请同步更新 tools/make_release.py 的 A_FILES/A_TOOLS；"
+              "若是误删，请先恢复。")
+        return 1
     # 清掉旧版本包，避免新旧版本混在同一个目录里
     for old in os.listdir(OUT):
         if old.endswith(".zip"):
