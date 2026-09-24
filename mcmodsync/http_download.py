@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import os
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional
+
+from . import trust
 
 EXIT_NETWORK = 5
 
@@ -46,6 +49,9 @@ class DownloadError(Exception):
 
 
 def _build_opener() -> urllib.request.OpenerDirector:
+    if trust.pinned_mode():
+        # 已进入粘性内置根模式：直接用内置可信根建连（绕开本机证书库残留）
+        return urllib.request.build_opener(trust.pinned_https_handler())
     handlers: List[urllib.request.BaseHandler] = []
     if os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY"):
         handlers.append(urllib.request.ProxyHandler({
@@ -55,12 +61,29 @@ def _build_opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(*handlers)
 
 
+def _open(opener: urllib.request.OpenerDirector, req: urllib.request.Request,
+          timeout: int):
+    """opener.open 的替代：证书校验类失败时用内置可信根重试一次（粘性）。"""
+    try:
+        return opener.open(req, timeout=timeout)
+    except urllib.error.URLError as e:
+        if not trust.is_cert_verify_error(e):
+            raise
+        pinned = urllib.request.build_opener(trust.pinned_https_handler())
+        try:
+            resp = pinned.open(req, timeout=timeout)
+        except Exception:                    # noqa: BLE001  内置库也失败：抛原始错误
+            raise e                          # noqa: B904  诊断信息基于原始错误
+        trust.note_pinned_ok()
+        return resp
+
+
 def _fetch(url: str, dst: str, timeout: int = 60,
            progress: ProgressFn = None) -> int:
     """下载 url -> dst；返回 HTTP 状态码。"""
     opener = _build_opener()
     req = urllib.request.Request(url, headers={"User-Agent": "MC-ModSync-C/2.0"})
-    with opener.open(req, timeout=timeout) as resp, open(dst, "wb") as f:
+    with _open(opener, req, timeout) as resp, open(dst, "wb") as f:
         while True:
             block = resp.read(1024 * 1024)
             if not block:
@@ -89,7 +112,7 @@ def _fetch_segment(url: str, dst: str, start: int, end: int,
         "Range": "bytes=%d-%d" % (start, end),
     })
     got = 0
-    with opener.open(req, timeout=timeout) as resp, open(dst, "wb") as f:
+    with _open(opener, req, timeout) as resp, open(dst, "wb") as f:
         status = int(resp.status)
         while True:
             block = resp.read(256 * 1024)

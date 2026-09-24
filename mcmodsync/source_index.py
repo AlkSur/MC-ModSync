@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from typing import Callable, Optional, Tuple
 
-from . import canonicaljson
+from . import canonicaljson, trust
 
 USER_AGENT = "MC-ModSync-C/2.0"
 SUPPORTED_INDEX_SCHEMA = 1
@@ -105,7 +105,8 @@ def fetch_index(pointer_url: str, public_key: str, pack_id: str,
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
                                                    "Cache-Control": "no-cache"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with trust.open_https(req, timeout=timeout,
+                              log=(lambda m: _trace(trace, m))) as resp:
             obj = json.loads(resp.read().decode("utf-8"))
     except Exception as e:  # noqa: BLE001  404/超时/网络异常都视为"没有索引"
         _trace(trace, "来源索引拉取失败（沿用本地缓存，不影响同步）: %s" % e)

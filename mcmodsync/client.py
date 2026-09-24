@@ -34,7 +34,7 @@ import urllib.request
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import canonicaljson, hashing, http_download, locking, manifest, paths, source_index
+from . import canonicaljson, hashing, http_download, locking, manifest, paths, source_index, trust
 
 EXIT_OK = 0
 EXIT_GENERIC = 1
@@ -338,7 +338,7 @@ def fetch_json(url: str, cache_bust: bool = False, timeout: int = 30,
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
                                               "Cache-Control": "no-cache"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with trust.open_https(req, timeout=timeout, log=log) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if log:
                 log("HTTP %d %s" % (resp.status, url))
@@ -672,6 +672,9 @@ def report_ssl_failure(err: Exception, log: Callable[[str], None]) -> bool:
     log("    排查顺序: 1) 核对本机时间是否准确（时间偏差会让证书被判定为过期）；"
         "2) 运行 Windows Update 更新系统根证书；"
         "3) 暂时关闭杀毒软件/代理的 HTTPS 扫描后重试")
+    if trust.pinned_tried():
+        log("    补充: 更新器已用内置可信根重试过仍失败 —— 说明不是本机证书库"
+            "残留过期证书的问题，多为网络被拦截/代理所致")
     if url:
         log("    自测方法: 用浏览器打开 %s" % url)
         log("              若浏览器也报证书错误，说明是本机环境问题，与更新器无关")
