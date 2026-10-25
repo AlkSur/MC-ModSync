@@ -20,7 +20,9 @@
     "sourceModsDir": "./client-mods",
     "manifestUrl": "https://YOUR_DOMAIN/packs/YOUR_PREFIX/manifest.json",
     "publicKey": "BASE64_PUBLIC_KEY",
-    "clientStateFile": "./client-publish-state.json"
+    "clientStateFile": "./client-publish-state.json",
+    "downloadConcurrency": 8,
+    "downloadConnections": 32
   },
   "storage": {
     "endpointUrl": "https://s3.YOUR_REGION.example.com",

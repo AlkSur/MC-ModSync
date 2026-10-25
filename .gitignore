@@ -37,3 +37,5 @@ mods.lock.generated.json
 *.log
 .DS_Store
 Thumbs.db
+/tok2.txt
+/tok.txt

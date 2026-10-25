@@ -109,6 +109,20 @@ def test_main_package_client_missing_config() -> None:
     assert cli.main(["package-client", "-c", "nope.json"]) == 1
 
 
+def test_package_tool_requests_fresh_fallback(tmp_path, monkeypatch) -> None:
+    from tools import package_client
+    calls = []
+    monkeypatch.setattr(package_client, "REPO", str(tmp_path))
+
+    def assemble(config, out, **kwargs):
+        calls.append(kwargs)
+        return {"out": str(tmp_path), "files": [], "sums": str(tmp_path / "SHA256SUMS.txt"), "banned": []}
+
+    monkeypatch.setattr(package_client.packaging, "assemble", assemble)
+    assert package_client.main(["package_client.py", "--no-exe"]) == 0
+    assert calls[0]["fallback"] is None
+
+
 def test_main_package_client_no_exe_assembles(tmp_path, monkeypatch) -> None:
     """package-client --no-exe: 组装 .py 兜底 + config.json + SHA256SUMS。"""
     from mcmodsync import packaging

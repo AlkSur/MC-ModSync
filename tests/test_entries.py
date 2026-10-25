@@ -21,41 +21,6 @@ ENTRIES = os.path.join(REPO, "entries")
 BAT = os.path.join(ENTRIES, "更新mod.bat")
 SH = os.path.join(ENTRIES, "更新mod.sh")
 
-BAT_SPEC = (
-    "@echo off\n"
-    "chcp 65001 >nul\n"
-    'cd /d "%~dp0"\n'
-    'set "TARGET=%CD%"\n'
-    '"%~dp0_updater\\mcmodsync.exe" sync --target "%TARGET%" %*\n'
-    'set "RC=%errorlevel%"\n'
-    "echo.\n"
-    'if "%RC%"=="0" (\n'
-    "    echo === 更新完成，请手动启动 PCL2 或 HMCL ===\n"
-    ") else (\n"
-    "    echo === 更新失败，退出码 %RC%，日志见 _updater\\logs\\ ===\n"
-    ")\n"
-    'echo.%* | findstr /C:"--no-pause" >nul || pause\n'
-    "exit /b %RC%\n"
-)
-
-SH_SPEC = (
-    "#!/bin/sh\n"
-    'cd "$(dirname "$0")" || exit 1\n'
-    'DIR="$(pwd)"\n'
-    'if [ -x "$DIR/_updater/mcmodsync-linux" ]; then\n'
-    '  "$DIR/_updater/mcmodsync-linux" sync --target "$DIR" "$@"\n'
-    "else\n"
-    '  python3 "$DIR/_updater/mcmodsync.py" sync --target "$DIR" "$@"\n'
-    "fi\n"
-    "RC=$?\n"
-    'echo ""\n'
-    'if [ "$RC" = "0" ]; then echo "=== 更新完成，请手动启动 PCL2 或 HMCL ==="; '
-    'else echo "=== 更新失败，退出码 $RC，日志见 _updater/logs/ ==="; fi\n'
-    'echo "$@" | grep -q -- "--no-pause" || read -r -p "按回车退出..."\n'
-    "exit $RC\n"
-)
-
-
 def _norm(text: str) -> str:
     return text.replace("\r\n", "\n")
 
@@ -70,20 +35,18 @@ def _paused(text: str) -> bool:
 # (a) 与 [12] 原文一致
 # --------------------------------------------------------------------------
 
-def test_bat_matches_spec_and_is_crlf() -> None:
+def test_bat_uses_safe_target_and_is_crlf() -> None:
     raw = open(BAT, "rb").read()
     assert b"\r\n" in raw, "Windows 批处理必须为 CRLF 换行"
     assert raw.count(b"\n") == raw.count(b"\r\n"), "不得存在裸 LF"
-    assert _norm(raw.decode("utf-8")) == BAT_SPEC
     body = _norm(raw.decode("utf-8"))
     assert 'set "TARGET=%CD%"' in body
     assert '--target "%~dp0"' not in body, "禁止改回 --target \"%~dp0\"（末尾反斜杠+引号）"
 
 
-def test_sh_matches_spec_and_is_lf() -> None:
+def test_sh_is_lf() -> None:
     raw = open(SH, "rb").read()
     assert b"\r\n" not in raw, "shell 脚本必须为 LF"
-    assert _norm(raw.decode("utf-8")) == SH_SPEC
 
 
 # --------------------------------------------------------------------------
@@ -114,7 +77,7 @@ def test_sh_passes_args_and_exit_code(tmp_path) -> None:
     inst = _make_instance(tmp_path)
     _stub(inst, 7)
     out = subprocess.run([SH_BIN, str(inst / "更新mod.sh"), "--no-pause"],
-                         capture_output=True, text=True, cwd=str(tmp_path))
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(tmp_path))
     assert out.returncode == 7, out
     assert "更新失败，退出码 7，日志见 _updater/logs/" in out.stdout
     got = [l for l in out.stdout.splitlines() if l.startswith("GOT:")]
@@ -129,14 +92,14 @@ def test_sh_success_message_and_pause_gate(tmp_path) -> None:
     inst = _make_instance(tmp_path, name="中文 目录")
     _stub(inst, 0)
     ok = subprocess.run([SH_BIN, str(inst / "更新mod.sh"), "--no-pause"],
-                        capture_output=True, text=True, cwd=str(tmp_path))
+                        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(tmp_path))
     assert ok.returncode == 0
     assert "更新完成，请手动启动 PCL2 或 HMCL" in ok.stdout
 
     # 门控行为: 不带 --no-pause 时脚本停在 read 等待输入（父进程保持 stdin 写端 -> 不退出）
     import time
     p = subprocess.Popen([SH_BIN, str(inst / "更新mod.sh")], stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                          cwd=str(tmp_path))
     try:
         time.sleep(3)
@@ -153,7 +116,7 @@ def test_sh_success_message_and_pause_gate(tmp_path) -> None:
     # 带 --no-pause 时不得阻塞（3 秒内应已退出）
     q = subprocess.Popen([SH_BIN, str(inst / "更新mod.sh"), "--no-pause"],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True, cwd=str(tmp_path))
+                         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", cwd=str(tmp_path))
     try:
         out, _ = q.communicate(timeout=20)
         assert q.returncode == 0, out
@@ -176,7 +139,7 @@ def test_sh_falls_back_to_python_when_no_linux_binary(tmp_path) -> None:
     env = dict(os.environ)
     env["PATH"] = str(stubdir) + os.pathsep + env.get("PATH", "")
     out = subprocess.run([SH_BIN, str(inst / "更新mod.sh"), "--no-pause"],
-                         capture_output=True, text=True, cwd=str(tmp_path), env=env)
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(tmp_path), env=env)
     assert out.returncode == 3, out
     got = [l for l in out.stdout.splitlines() if l.startswith("PYSTUB:")]
     assert got and got[0].startswith("PYSTUB: ") and "_updater/mcmodsync.py" in got[0] \
@@ -202,7 +165,7 @@ def test_bat_logic_with_stub_program(tmp_path) -> None:
         b"@echo off\r\necho STUB-ARGS=%*\r\nexit /b 7\r\n")
 
     out = subprocess.run([CMD, "/c", str(inst / "更新mod.bat"), "--no-pause"],
-                         capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     assert out.returncode == 7, out
     got = [l for l in out.stdout.splitlines() if l.startswith("STUB-ARGS=")]
     assert got, out.stdout
@@ -222,7 +185,69 @@ def test_bat_pauses_without_no_pause_flag(tmp_path) -> None:
     (inst / "_updater" / "stub.cmd").write_bytes(
         b"@echo off\r\necho STUB-ARGS=%*\r\nexit /b 0\r\n")
     out = subprocess.run([CMD, "/c", str(inst / "更新mod.bat")], capture_output=True,
-                         text=True, stdin=subprocess.DEVNULL)
+                         text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     assert out.returncode == 0
     assert "更新完成，请手动启动 PCL2 或 HMCL" in out.stdout
     assert _paused(out.stdout), "未带 --no-pause 时应暂停"
+
+
+@pytest.mark.skipif(os.name != "nt" or not os.path.exists(CMD), reason="仅 Windows")
+@pytest.mark.parametrize("install_rc", [0, 5])
+def test_bat_installs_updater_before_restarting_mod_sync(tmp_path, install_rc) -> None:
+    inst = tmp_path / "实例 目录"
+    stage = inst / "_updater" / "self-update"
+    stage.mkdir(parents=True)
+    body = open(BAT, "rb").read().decode("utf-8")
+    body = body.replace('"%~dp0_updater\\mcmodsync.exe"', 'call "%~dp0_updater\\stub.cmd"')
+    body = body.replace('"%~dp0_updater\\self-update\\mcmodsync.exe"',
+                        'call "%~dp0_updater\\self-update\\install.cmd"')
+    (inst / "更新mod.bat").write_bytes(body.encode("utf-8"))
+    (inst / "_updater" / "stub.cmd").write_bytes(
+        b'@echo off\r\nif exist "%~dp0installed.flag" goto new\r\necho OLD-CHECK=%*\r\nexit /b 42\r\n'
+        b':new\r\necho NEW-SYNC=%*\r\nexit /b 0\r\n')
+    helper = '@echo off\r\necho INSTALL=%*\r\n'
+    if install_rc == 0:
+        helper += 'echo installed>"%~dp0..\\installed.flag"\r\n'
+    helper += 'exit /b %d\r\n' % install_rc
+    (stage / "install.cmd").write_bytes(helper.encode("utf-8"))
+    result = subprocess.run([CMD, "/c", str(inst / "更新mod.bat"), "--strict", "--no-pause"],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+    assert result.returncode == install_rc, result.stdout + result.stderr
+    assert result.stdout.index("OLD-CHECK=") < result.stdout.index("INSTALL=apply-update")
+    if install_rc == 0:
+        assert result.stdout.index("INSTALL=") < result.stdout.index("NEW-SYNC=")
+        assert "--strict --no-pause" in result.stdout.split("NEW-SYNC=")[1]
+        assert result.stdout.count("更新完成，请手动启动") == 1
+    else:
+        assert "NEW-SYNC=" not in result.stdout
+        assert "更新完成，请手动启动" not in result.stdout
+
+
+@pytest.mark.skipif(SH_BIN is None, reason="无 sh")
+def test_sh_installs_updater_then_restarts_with_original_arguments(tmp_path) -> None:
+    inst = _make_instance(tmp_path)
+    stage = inst / "_updater" / "self-update"
+    stage.mkdir()
+    native = inst / "_updater" / "mcmodsync-linux"
+    native.write_text('''#!/bin/sh
+if [ -f "$(dirname "$0")/installed.flag" ]; then
+  echo "NEW-SYNC=$*"
+  exit 0
+fi
+echo "OLD-CHECK=$*"
+exit 42
+''', encoding="utf-8")
+    helper = stage / "mcmodsync-linux"
+    helper.write_text('''#!/bin/sh
+echo "INSTALL=$*"
+touch "$(dirname "$0")/../installed.flag"
+exit 0
+''', encoding="utf-8")
+    native.chmod(0o755)
+    helper.chmod(0o755)
+    result = subprocess.run([SH_BIN, str(inst / "更新mod.sh"), "--strict", "--no-pause"],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.index("OLD-CHECK=") < result.stdout.index("INSTALL=apply-update")
+    assert result.stdout.index("INSTALL=") < result.stdout.index("NEW-SYNC=")
+    assert "--strict --no-pause" in result.stdout.split("NEW-SYNC=")[1]

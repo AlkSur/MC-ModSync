@@ -164,6 +164,36 @@ def test_python_fallback_end_to_end(tmp_path, cloud) -> None:
     _assert_synced(inst, FILES)
 
 
+@pytest.mark.parametrize("runtime", ["exe", "python"])
+def test_packaged_repairs_missing_mod_and_removes_renamed_old_copy(tmp_path, cloud, runtime) -> None:
+    from test_mod_metadata import jar_bytes
+
+    c, pub, base = cloud
+    current = jar_bytes(["thaumcraft"], "10")
+    private = jar_bytes(["private_helper"], "1")
+    files = {"mods/current.jar": current}
+    c.publish("1.0.0", files)
+    inst = _make_instance(tmp_path, base, pub, files)
+    mods = inst / "mods"
+    mods.mkdir(exist_ok=True)
+    (mods / "renamed-old.jar").write_bytes(jar_bytes(["thaumcraft"], "1"))
+    (mods / "private.jar").write_bytes(private)
+    command = [EXE] if runtime == "exe" else [sys.executable, FALLBACK]
+    command += ["sync", "--target", str(inst), "--no-pause"]
+    rc, out, err = _run(command)
+    assert rc == 0, out + err
+    assert (mods / "current.jar").read_bytes() == current
+    assert (mods / "private.jar").read_bytes() == private
+    assert not (mods / "renamed-old.jar").exists()
+    assert "复核通过" in out
+    # 状态已记录为最新，仍必须修复被玩家删掉的文件。
+    (mods / "current.jar").unlink()
+    rc, out, err = _run(command)
+    assert rc == 0, out + err
+    assert (mods / "current.jar").read_bytes() == current
+    assert (mods / "private.jar").read_bytes() == private
+
+
 def test_python_fallback_on_system_interpreter(tmp_path, cloud) -> None:
     """用另一套系统解释器运行 .py 兜底，验证「纯标准库 + 系统 Python 可运行」。"""
     sys_py = r"D:\Software\Python\python.exe"

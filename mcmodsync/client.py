@@ -27,6 +27,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -35,6 +36,7 @@ from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import canonicaljson, hashing, http_download, locking, manifest, paths, source_index, trust
+from .mod_metadata import read_mod_ids
 
 EXIT_OK = 0
 EXIT_GENERIC = 1
@@ -334,7 +336,7 @@ def fetch_json(url: str, cache_bust: bool = False, timeout: int = 30,
     """GET JSON；指针请求追加 ?t=<unix秒>（[T-40] 步骤4）。"""
     if cache_bust:
         sep = "&" if "?" in url else "?"
-        url = "%s%st=%d" % (url, sep, int(time.time()))
+        url = "%s%st=%d" % (url, sep, time.time_ns())
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
                                               "Cache-Control": "no-cache"})
     try:
@@ -424,6 +426,47 @@ def read_state(target: str) -> dict:
     return _read_json(state_path(target)) or {}
 
 
+def validate_release(pointer: dict, man: dict, cfg: dict) -> None:
+    """拒绝缓存错配或不完整的清单，不能把空清单当作已更新。"""
+    if str(pointer.get("packId") or "") != str(cfg["packId"]):
+        raise ClientError(EXIT_PACKID, "指针 packId 与本地配置不一致")
+    if str(man.get("packId") or "") != str(cfg["packId"]):
+        raise ClientError(EXIT_PACKID, "版本清单 packId 与本地配置不一致")
+    latest = str(pointer.get("latest") or "")
+    if not latest or latest != str(man.get("version") or ""):
+        raise ClientError(EXIT_GENERIC, "云端指针与版本清单不一致，可能是缓存未刷新，请重试或联系服主")
+    files = man.get("files")
+    if not isinstance(files, list) or not files:
+        raise ClientError(EXIT_GENERIC, "云端版本清单没有 mod 文件，拒绝报告更新成功，请联系服主检查发布")
+    seen = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise ClientError(EXIT_GENERIC, "云端文件清单格式错误")
+        path = paths.normalize_rel(entry.get("path"))
+        if (path != entry.get("path") or not path.startswith("mods/")
+                or path.count("/") != 1 or not path.lower().endswith(".jar")
+                or path.casefold() in seen):
+            raise ClientError(EXIT_GENERIC, "云端 mod 路径不合法或重复: %s" % path)
+        seen.add(path.casefold())
+        sha = entry.get("sha256")
+        size = entry.get("size")
+        if (not isinstance(sha, str) or len(sha) != 64
+                or any(c not in "0123456789abcdef" for c in sha)
+                or type(size) is not int or size < 0):
+            raise ClientError(EXIT_GENERIC, "云端 mod 校验信息不合法: %s" % path)
+
+
+def download_settings(cfg: dict) -> Tuple[int, int]:
+    values = []
+    for key, default, maximum in (("downloadConcurrency", http_download.DEFAULT_CONCURRENCY, 32),
+                                  ("downloadConnections", http_download.DEFAULT_TOTAL_SLOTS, 64)):
+        value = cfg.get(key, default)
+        if type(value) is not int or not 1 <= value <= maximum:
+            raise ClientError(EXIT_GENERIC, "config.json 的 %s 必须为 1 到 %d 的整数" % (key, maximum))
+        values.append(value)
+    return values[0], values[1]
+
+
 def write_state(target: str, pack_id: str, version: Optional[str],
                 files: List[dict]) -> None:
     obj = {
@@ -458,7 +501,8 @@ def plan_changes(target: str, files: List[dict], delete: List[dict],
     need: List[dict] = []
     for p in sorted(desired):
         d = disk.get(p)
-        if d and d["sha256"] == desired[p]["sha256"]:
+        if (d and d["sha256"] == desired[p]["sha256"]
+                and d["size"] == desired[p]["size"]):
             continue
         need.append(desired[p])
 
@@ -510,6 +554,45 @@ def plan_changes(target: str, files: List[dict], delete: List[dict],
 def self_installed_entries(disk: Dict[str, dict], desired: Dict[str, dict]) -> List[dict]:
     """磁盘多余（玩家自装）条目。"""
     return [disk[p] for p in sorted(disk) if p not in desired]
+
+
+def identity_deletions(target: str, plan: dict) -> List[dict]:
+    """Identify renamed old managed mods using actual, hash-verified desired JARs.
+
+    Metadata is read from staging for downloads, or the existing checked file.
+    Mixed JARs containing both managed and private IDs need manual resolution.
+    """
+    managed = {}
+    wanted_hashes = {entry["sha256"] for entry in plan["desired"].values()}
+    downloads = {entry["path"] for entry in plan["downloads"]}
+    for path, entry in plan["desired"].items():
+        sha = entry["sha256"]
+        if path in downloads:
+            src = os.path.join(staging_dir(target), "blobs", sha[:2], sha[2:4], sha)
+        else:
+            src = paths.safe_join(target, plan["copies"].get(path, path))
+        for mod_id in read_mod_ids(src):
+            if mod_id in managed and managed[mod_id] != path:
+                raise ClientError(EXIT_GENERIC, "发布清单包含重复 modId %s: %s / %s，请联系服主"
+                                  % (mod_id, managed[mod_id], path))
+            managed[mod_id] = path
+    deleted = {entry["path"] for entry in plan["to_delete"]}
+    extra = []
+    for path, entry in sorted(plan["disk"].items()):
+        if path in plan["desired"] or path in deleted:
+            continue
+        ids = set(read_mod_ids(paths.safe_join(target, path)))
+        overlap = ids.intersection(managed)
+        identical = entry["sha256"] in wanted_hashes
+        if overlap and ids.difference(managed) and not identical:
+            raise ClientError(EXIT_GENERIC,
+                              "本地文件 %s 同时包含整合包 modId（%s）和其他 modId（%s），"
+                              "为避免误删已停止，请联系服主处理"
+                              % (path, ", ".join(sorted(overlap)), ", ".join(sorted(ids.difference(managed)))))
+        if identical or overlap:
+            extra.append({"path": path, "sha256": entry["sha256"], "size": entry["size"],
+                          "reason": "managed-hash" if identical else "mod-id"})
+    return extra
 
 
 # --------------------------------------------------------------------------
@@ -759,6 +842,7 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
                  prefer_platform: bool = True) -> int:
     # 步骤2 配置
     cfg = load_config(target)                            # 缺字段 -> 1
+    concurrency, total_slots = download_settings(cfg)
     # 步骤3 游戏运行检测（**仅提示，不拦截**）
     # Minecraft 只在启动时读一次 mods/ 并加载进内存，游戏运行中替换磁盘上的 jar
     # 不会影响本次会话，重启游戏后生效。早期版本检测到客户端运行会直接退出(3)，
@@ -788,7 +872,7 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
         log("指针缺少 manifestUrl")
         return EXIT_GENERIC
     try:
-        man = fetch_json(man_url, log=log)
+        man = fetch_json(man_url, cache_bust=True, log=log)
     except urllib.error.HTTPError as e:
         log("版本清单拉取失败: HTTP %s (%s)" % (e.code, man_url))
         return EXIT_NETWORK
@@ -805,6 +889,8 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     if str(man.get("packId") or "") != str(cfg["packId"]):
         log("packId 不一致: 清单=%r config=%r" % (man.get("packId"), cfg["packId"]))
         return EXIT_PACKID
+
+    validate_release(pointer, man, cfg)
 
     new_ver = str(man.get("version") or "")
     files = list(man.get("files") or [])
@@ -832,6 +918,8 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     disk: Dict[str, dict] = plan["disk"]
 
     log("目标: %s" % target)
+    log("实际 mods 目录: %s" % os.path.join(target, MODS_DIR))
+    log("云端清单: %d 个 mod；本地扫描: %d 个 mod" % (len(files), len(disk)))
     log("云端版本: %s（本地 %s）" % (new_ver or "-", old_ver or "-"))
     log("变更预览: 新增/更新 %d（其中改名复用 %d，需下载 %d），删除 %d"
         % (len(plan["need"]), len(copies), len(downloads), len(to_delete)))
@@ -864,6 +952,7 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
     total_files = len(plan["need"])
     total_bytes = sum(int(e["size"]) for e in plan["need"])
     tick = {"files": 0, "bytes": 0}
+    tick_lock = threading.Lock()
 
     def _emit() -> None:
         if progress:
@@ -875,14 +964,16 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
             tick["bytes"] += int(e["size"])
             _emit()
     if downloads:
-        log("开始下载 %d 个文件（并发 4，单个失败重试 3 次）..." % len(downloads))
+        log("开始下载 %d 个文件（文件并发上限 %d，总连接上限 %d，单个失败重试 3 次）..."
+            % (len(downloads), concurrency, total_slots))
 
         def _on_done(entry: dict) -> None:
-            tick["files"] += 1
-            tick["bytes"] += int(entry["size"])
-            if on_file_done:                     # 渲染：文件进度打满 100%
-                on_file_done(entry)
-            _emit()
+            with tick_lock:
+                tick["files"] += 1
+                tick["bytes"] += int(entry["size"])
+                if on_file_done:                     # 渲染：文件进度打满 100%
+                    on_file_done(entry)
+                _emit()
 
         # 下载源索引：只有真要下东西时才拉一次（纯优化层，失败静默、不阻断）
         alt = load_source_index(target, pointer_url, cfg,
@@ -897,11 +988,20 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
                 "source": (hit[0] if hit else ""),
                 "altUrl": (hit[1] if hit else ""),
             })
-        http_download.download_blobs(tasks, base, staging, concurrency=4, retries=3, log=log,
+        http_download.download_blobs(tasks, base, staging, concurrency=concurrency, retries=3, log=log,
                                      on_done=_on_done, on_start=on_file_start,
                                      on_bytes=on_file_bytes, on_reset=on_file_reset,
-                                     trace=trace)
+                                     trace=trace, total_slots=total_slots)
     got_bytes = download_bytes
+
+    # 新旧文件名和哈希都变过时，从真实 JAR 元数据识别同一 mod 的旧副本。
+    identity_delete = identity_deletions(target, plan)
+    to_delete.extend(identity_delete)
+    if identity_delete:
+        check_paths(target, [entry["path"] for entry in identity_delete])
+        check_disk_space(target, 0, backup_bytes + sum(entry["size"] for entry in identity_delete))
+        for entry in identity_delete:
+            log("决策: 备份并删除旧模组副本 %s（%s）" % (entry["path"], entry["reason"]))
 
     # 步骤11 备份
     bdir = _new_backup_dir(target)
@@ -928,7 +1028,8 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
             "deleted": [{"path": e["path"], "oldSha256": e["sha256"],
                          "oldSize": int(e["size"]),
                          "backupPath": backup_rel.get(e["path"], ""),
-                         **({"reason": e["reason"]} if e.get("reason") == "strict" else {})}
+                         **({"reason": e["reason"]} if e.get("reason") in
+                            {"strict", "mod-id", "managed-hash"} else {})}
                         for e in to_delete],
         },
     }
@@ -961,6 +1062,18 @@ def _sync_locked(target: str, strict: bool, no_downgrade: bool, keep_backups: in
                     "删除失败 %s（%s）。该文件可能正被游戏/启动器占用或被安全软件锁定，"
                     "请关闭游戏后重新运行更新器。" % (os.path.basename(p), ex))
     _fault("mid-apply", log)
+
+    # 只有最终磁盘内容与清单一致，才可写成功状态（包括此前判定为无需更新的文件）。
+    log("正在复核 %d 个 mod 的最终文件内容..." % len(files))
+    final = plan_changes(target, files, delete, strict)
+    final["to_delete"].extend(identity_deletions(target, final))
+    if final["need"] or final["to_delete"]:
+        for entry in final["need"]:
+            log("复核失败（缺失或内容不符）: %s" % entry["path"])
+        for entry in final["to_delete"]:
+            log("复核失败（仍待删除）: %s" % entry["path"])
+        raise ClientError(EXIT_GENERIC, "更新后文件复核失败，未记录成功状态，请关闭游戏和启动器后重试")
+    log("复核通过: %d 个 mod 与云端清单一致" % len(files))
 
     # 步骤13 原子写 state
     write_state(target, cfg["packId"], new_ver, files)
@@ -1024,10 +1137,11 @@ def verify(target: str, strict: bool = False, log: Callable[[str], None] = print
             log("指针验签失败")
             return EXIT_SIGNATURE
         man_url = _resolve_url(str(cfg["manifestUrl"]), str(pointer.get("manifestUrl") or ""))
-        man = fetch_json(man_url, log=log)
+        man = fetch_json(man_url, cache_bust=True, log=log)
         if not canonicaljson.verify(man, str(cfg["publicKey"])):
             log("版本清单验签失败")
             return EXIT_SIGNATURE
+        validate_release(pointer, man, cfg)
     except urllib.error.HTTPError as e:
         log("拉取失败: HTTP %s" % e.code)
         return EXIT_NETWORK

@@ -28,7 +28,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional, TextIO
 
-from . import client, console
+from . import __version__, client, console, self_update
 from .logutil import setup_logger
 
 PROG = "mcmodsync"
@@ -104,6 +104,7 @@ class FileProgress:
             "speed": 0.0,
             "t0": time.time(),
             "done": False,
+            "reported": False,        # 最终进度是否已在终端保留
         }
         with self._lock:
             self._files[sha] = info
@@ -150,20 +151,21 @@ class FileProgress:
         sha = str(entry.get("sha256") or "")
         with self._lock:
             info = self._files.get(sha)
-            if info is None:
+            if info is None or info["done"]:
                 return
             info["done"] = True
             info["got"] = info["size"]
             if not self.interactive or self._focus != sha:
                 return
-            self._paint()                 # 打完 100%（不再单独打印“下载完成”）
-            self._close_block()
-            nxt = self._next_pending()
-            if nxt:
-                self._focus = nxt
-                self._paint()             # 直接进入下一个文件的双行输出
-            else:
-                self._focus = None
+            # 后台文件可能早已下载完成：仍要逐个留下最终 100%，不能直接跳过。
+            while self._focus is not None:
+                current = self._files[self._focus]
+                self._paint()
+                if not current["done"]:
+                    break
+                current["reported"] = True
+                self._close_block()
+                self._focus = self._next_pending()
 
     # ------------------------------------------------------------------
     # 与普通日志的协作
@@ -180,8 +182,24 @@ class FileProgress:
         """全部输出结束：收尾进度块，避免残留半行。"""
         with self._lock:
             self._close_block()
+            # 中途失败时也显示此前在后台成功的文件；未完成的文件不画成 100%。
+            if self.interactive:
+                for sha in self._order:
+                    info = self._files[sha]
+                    if info["done"] and not info["reported"]:
+                        self._focus = sha
+                        self._paint()
+                        self._close_block()
+                        info["reported"] = True
             self._focus = None
             self._last_len = 0
+
+    def write_line(self, text: str) -> None:
+        """普通日志与下载进度共用输出锁，换行和正文不能被并发重绘打断。"""
+        with self._lock:
+            if self.interrupt():
+                self.stream.write("\n")
+            self._write(text)
 
     # ------------------------------------------------------------------
     # 渲染
@@ -231,12 +249,12 @@ class FileProgress:
         self._open = True
 
     def _next_pending(self) -> Optional[str]:
-        """挑下一个待展示文件：最近启动且未完成的那个（减少切换次数）。"""
-        for sha in reversed(self._order):
+        """按启动顺序展示，包括已下载完成但还没显示最终进度的文件。"""
+        for sha in self._order:
             if sha == self._focus:
                 continue
             info = self._files.get(sha)
-            if info is not None and not info["done"]:
+            if info is not None and not info["reported"]:
                 return sha
         return None
 
@@ -259,10 +277,7 @@ class Console:
 
     def _plain(self, msg: str) -> None:
         """写一行到终端；若进度块正展开，先收尾再写（日志不插进进度行中间）。"""
-        if self.files.interrupt():
-            self.stream.write("\n")
-        self.stream.write(msg + "\n")
-        self.stream.flush()
+        self.files.write_line(msg)
 
     def _emit(self, plain: str, colored: str) -> None:
         """终端写“屏蔽哈希后的带色文本”，日志文件写“含哈希的纯文本”。"""
@@ -326,6 +341,7 @@ class Console:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog=PROG, description="MC-ModSync 客户端（C 端）")
+    p.add_argument("--version", action="version", version="MC-ModSync " + __version__)
     sub = p.add_subparsers(dest="command", required=True)
 
     def common(sp: argparse.ArgumentParser) -> None:
@@ -350,6 +366,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     common(sub.add_parser("rollback", help="回滚到最近一次备份"))
     common(sub.add_parser("doctor", help="环境与配置体检"))
+    common(sub.add_parser("apply-update", help="由启动脚本调用：安装已校验的新版更新器"))
     return p
 
 
@@ -382,6 +399,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     con.log("日志文件：%s" % lp)
 
     if args.command == "sync":
+        update_rc = self_update.check(target, con.log)
+        if update_rc:
+            con.files.close()
+            if update_rc != self_update.EXIT_RESTART:
+                con.finish(update_rc, lp)
+            return update_rc
         rc = client.sync(target, strict=args.strict, no_downgrade=args.no_downgrade,
                          keep_backups=args.keep_backups, log=con.log,
                          progress=con.progress,
@@ -391,6 +414,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                          on_file_done=con.files.done,
                          trace=con.trace,
                          prefer_platform=not args.no_platform)
+    elif args.command == "apply-update":
+        rc = self_update.apply(target, con.log)
     elif args.command == "verify":
         rc = client.verify(target, strict=args.strict, log=con.log)
     elif args.command == "rollback":

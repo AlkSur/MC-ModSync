@@ -138,7 +138,9 @@ def render_config(pack_file: str) -> Dict[str, object]:
     prefer = cli.get("preferPlatform", True)
     return {"schemaVersion": 1, "packId": pack_id,
             "manifestUrl": manifest_url, "publicKey": public_key,
-            "preferPlatform": bool(prefer)}
+            "preferPlatform": bool(prefer),
+            "downloadConcurrency": cli.get("downloadConcurrency", 8),
+            "downloadConnections": cli.get("downloadConnections", 32)}
 
 
 # --------------------------------------------------------------------------
@@ -258,6 +260,11 @@ def assemble(config_path: str, out: str, repo: str = REPO,
 
     with open(os.path.join(up, "config.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(cfg, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+    from . import __version__
+    with open(os.path.join(up, "build-info.json"), "w", encoding="utf-8", newline="\n") as f:
+        json.dump({"version": __version__, "schemaVersion": 1}, f, sort_keys=True)
+        f.write("\n")
 
     sums = write_sha256sums(out)
 

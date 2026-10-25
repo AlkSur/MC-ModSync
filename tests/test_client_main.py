@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from charness import PACK_ID, Cloud, Instance, make_keys
@@ -229,6 +231,53 @@ def test_file_progress_switches_to_next_file() -> None:
     assert "正在下载 |来源:对象存储| 文件名:b.jar" in text
     # b.jar 的第一行出现在 a.jar 的 100% 之后
     assert text.index("文件名:b.jar") > text.index("] 100% |")
+
+
+@pytest.mark.parametrize("ansi", [False, True])
+@pytest.mark.parametrize("finish_order", list(itertools.permutations(range(4))))
+def test_all_four_downloads_visible_regardless_of_finish_order(ansi, finish_order) -> None:
+    stream = TtyStream()
+    fp = client_main.FileProgress(stream, interactive=True, ansi=ansi)
+    entries = [_entry(str(i) * 64, "%d.jar" % i, 1024) for i in range(4)]
+    for entry in entries:
+        fp.start(entry)
+    for i in finish_order:
+        fp.done(entries[i])
+    fp.close()
+    for entry in entries:
+        name = os.path.basename(entry["path"])
+        assert stream.text.count("文件名:%s\n" % name) == 1
+    assert stream.text.count("] 100% |") == 4
+
+
+def test_concurrent_completions_all_reported_once() -> None:
+    stream = TtyStream()
+    fp = client_main.FileProgress(stream, interactive=True, ansi=True)
+    entries = [_entry("%064x" % i, "%d.jar" % i, 1024) for i in range(8)]
+    for entry in entries:
+        fp.start(entry)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(fp.done, entries))
+    # 重复通知及结束收尾都不能重复记录完成。
+    for entry in entries:
+        fp.done(entry)
+    fp.close()
+    assert stream.text.count("] 100% |") == 8
+    for i in range(8):
+        assert stream.text.count("文件名:%d.jar\n" % i) == 1
+
+
+def test_close_reports_background_success_without_claiming_failed_file_finished() -> None:
+    stream = TtyStream()
+    fp = client_main.FileProgress(stream, interactive=True, ansi=True)
+    fp.start(_entry(SHA_A, "slow-failed.jar", 1024))
+    fp.start(_entry(SHA_B, "fast-success.jar", 1024))
+    fp.done(_entry(SHA_B, "fast-success.jar", 1024))
+    fp.close()
+    fp.close()
+    assert stream.text.count("文件名:fast-success.jar\n") == 1
+    assert stream.text.count("] 100% |") == 1
+    assert stream.text.index("文件名:fast-success.jar") < stream.text.index("] 100% |")
 
 
 def test_file_progress_non_interactive_is_plain_lines() -> None:

@@ -343,6 +343,22 @@ def cmd_package_client(args) -> int:
     return EXIT_GENERIC if res["banned"] else EXIT_OK
 
 
+def cmd_publish_updater(args) -> int:
+    from . import updater_publish
+    from .storage.s3 import S3Store
+
+    cfg = mconfig.load_config(args.config)
+    st = cfg["storage"]
+    store = S3Store(st["endpointUrl"], st.get("region", ""), st["bucket"],
+                    st.get("prefix", ""), st["accessKey"], st["secretKey"],
+                    bool(st.get("pathStyle", True)))
+    try:
+        return updater_publish.publish_updater(cfg, store, args.package, args.dry_run)
+    except updater_publish.UpdaterPublishError as error:
+        print("publish-updater 失败: %s" % error)
+        return EXIT_GENERIC
+
+
 def _common_parent() -> argparse.ArgumentParser:
     """-c/--config 同时支持「子命令 -c ...」写法（计划书用法）。
 
@@ -416,12 +432,15 @@ def build_parser() -> argparse.ArgumentParser:
     pk.add_argument("--exe", default="", help="复用已构建的 exe 路径")
     pk.add_argument("--fallback", default="", help=".py 兜底来源（默认 client/mcmodsync.py）")
     pk.add_argument("--skip-verify", action="store_true", help="跳过产物内模块核验")
+    pu = sub.add_parser("publish-updater", parents=[C], help="发布签名更新器，供玩家自动升级程序")
+    pu.add_argument("--package", default="dist/client-package", help="已构建的玩家分发包目录")
+    pu.add_argument("--dry-run", action="store_true", help="只检查分发包和展示计划，不上传")
     return p
 
 
 # 需要在开始处打印运行分隔头的子命令（doctor 自带表头，故不在内）
 _RUN_HEADER_CMDS = ("fetch-mods", "push-server", "rollback-server",
-                    "publish-client", "rebuild-sources", "package-client")
+                    "publish-client", "rebuild-sources", "package-client", "publish-updater")
 
 
 def print_run_header(command: str, log: Callable[[str], None] = print) -> None:
@@ -467,6 +486,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_fetch_mods(args)
         if args.command == "package-client":
             return cmd_package_client(args)
+        if args.command == "publish-updater":
+            return cmd_publish_updater(args)
     except mconfig.ConfigError as e:
         print("配置错误: %s" % e)
         return EXIT_GENERIC

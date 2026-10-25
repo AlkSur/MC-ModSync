@@ -2,7 +2,7 @@
 
 Spec section: 7.2 http_download.py, 9.2-9
 - honors HTTP_PROXY / HTTPS_PROXY environment variables
-- thread pool concurrency (default 4)
+- thread pool concurrency (default 8), shared connection budget (default 32)
 - per-file retry 3x with exponential backoff; full-file re-download, no resume
 - downloads into staging blob layout blobs/<xx>/<yy>/<sha256>
 - verifies sha256+size after each attempt; mismatch -> retry -> exit 5 when exhausted
@@ -30,7 +30,8 @@ EXIT_NETWORK = 5
 ProgressFn = Optional[Callable[[int], None]]
 
 # 分片下载参数
-DEFAULT_TOTAL_SLOTS = 8              # 分片下载的总连接预算（所有文件共享）
+DEFAULT_CONCURRENCY = 8             # 同时下载的文件数
+DEFAULT_TOTAL_SLOTS = 32             # 分片下载的总连接预算（所有文件共享）
 SEGMENT_MIN_SIZE = 2 * 1024 * 1024   # 小于此值不分片（分片反而多几次 RTT）
 SEGMENT_SIZE = 1024 * 1024           # 单个分片的目标大小
 SEGMENT_MAX = 8                      # 单文件最多分几片
@@ -114,6 +115,12 @@ def _fetch_segment(url: str, dst: str, start: int, end: int,
     got = 0
     with _open(opener, req, timeout) as resp, open(dst, "wb") as f:
         status = int(resp.status)
+        # 不支持 Range 时立即回退，避免每个分片重复下载整个大文件。
+        if status != 206:
+            raise DownloadError(EXIT_NETWORK, "源站不支持分片（HTTP %d）" % status)
+        content_range = str(resp.headers.get("Content-Range") or "")
+        if not content_range.startswith("bytes %d-%d/" % (start, end)):
+            raise DownloadError(EXIT_NETWORK, "源站返回了错误的分片范围: %s" % content_range)
         while True:
             block = resp.read(256 * 1024)
             if not block:
@@ -286,7 +293,8 @@ def _try_platform(url: str, dst: str, sha: str, size: int,
                   verify_fn: Callable[[str], bool],
                   on_bytes: Optional[Callable[[int], None]] = None,
                   on_reset: Optional[Callable[[], None]] = None,
-                  trace: Optional[Callable[[str], None]] = None) -> bool:
+                  trace: Optional[Callable[[str], None]] = None,
+                  segments: int = 1) -> bool:
     """平台直链尝试：1 次、超时 8s、不重试；成功返回 True。
 
     复用 download_one 的完整路径（分段/校验/原子落位逻辑一行不改）。
@@ -295,7 +303,7 @@ def _try_platform(url: str, dst: str, sha: str, size: int,
     """
     try:
         download_one(url, dst, sha, size, verify_fn,
-                     retries=PLATFORM_RETRIES, log=None, segments=1,
+                     retries=PLATFORM_RETRIES, log=None, segments=segments,
                      timeout=PLATFORM_TIMEOUT,
                      on_bytes=on_bytes, on_reset=on_reset, trace=trace)
         return True
@@ -310,13 +318,14 @@ def _try_platform(url: str, dst: str, sha: str, size: int,
 
 
 def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
-                   concurrency: int = 4, retries: int = 3,
+                   concurrency: int = DEFAULT_CONCURRENCY, retries: int = 3,
                    log: Optional[Callable[[str], None]] = None,
                    on_done: Optional[Callable[[Dict], None]] = None,
                    on_start: Optional[Callable[[Dict], None]] = None,
                    on_bytes: Optional[Callable[[str, int], None]] = None,
                    on_reset: Optional[Callable[[str], None]] = None,
-                   trace: Optional[Callable[[str], None]] = None) -> int:
+                   trace: Optional[Callable[[str], None]] = None,
+                   total_slots: int = DEFAULT_TOTAL_SLOTS) -> int:
     """Download all blobs into staging; returns total downloaded bytes.
 
     tasks: list of {path, sha256, size} entries that need downloading.
@@ -330,12 +339,13 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
         return 0
     total = 0
     # 分片并发与文件级并发共享总连接预算：一次只下 1~2 个文件时单文件多开几片，
-    # 文件很多时每文件少开几片，避免 4 文件 × 8 片 = 32 连接把玩家带宽打满。
-    in_flight = max(1, min(concurrency, len(tasks)))
-    per_file = max(1, min(SEGMENT_MAX, DEFAULT_TOTAL_SLOTS // in_flight))
+    # 文件很多时每文件少开几片，平台与对象存储使用相同的连接预算。
+    total_slots = max(1, min(64, int(total_slots)))
+    in_flight = max(1, min(32, int(concurrency), len(tasks), total_slots))
+    per_file = max(1, min(SEGMENT_MAX, total_slots // in_flight))
     if log:
         log("下载策略: 文件并发 %d × 单文件最多 %d 片（总连接 ≈ %d）"
-            % (in_flight, per_file, min(in_flight * per_file, DEFAULT_TOTAL_SLOTS * 2)))
+            % (in_flight, per_file, in_flight * per_file))
 
     def _work(expected: Dict) -> Dict:
         sha = expected["sha256"]
@@ -364,7 +374,7 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
             if _try_platform(alt, dst, sha, expected["size"], _verify,
                              on_bytes=(lambda n: on_bytes(sha, n)) if on_bytes else None,
                              on_reset=(lambda: on_reset(sha)) if on_reset else None,
-                             trace=trace):
+                             trace=trace, segments=per_file):
                 if on_done:
                     on_done(expected)
                 return expected
@@ -380,7 +390,7 @@ def download_blobs(tasks: List[Dict], blob_base: str, staging: str,
             on_done(expected)
         return expected
 
-    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+    with ThreadPoolExecutor(max_workers=in_flight) as pool:
         for res in pool.map(_work, tasks):
             total += int(res["size"])
     return total

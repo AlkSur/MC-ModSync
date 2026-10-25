@@ -73,6 +73,87 @@ def test_first_full_sync(env) -> None:
     assert any("新增 2" in m for m in logs)
 
 
+def test_same_version_repairs_missing_and_corrupt_mods(env) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A", "mods/b.jar": b"B"})
+    assert env.inst.sync() == 0
+    env.inst.remove_mods(["a.jar"])
+    env.inst.put_mods({"b.jar": b"BROKEN"})
+    logs = []
+    assert env.inst.sync(log=logs.append) == 0
+    assert env.inst.mod_bytes("a.jar") == b"A"
+    assert env.inst.mod_bytes("b.jar") == b"B"
+    assert any("复核通过: 2" in line for line in logs)
+
+
+def test_stale_signed_manifest_cannot_report_success(env) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    assert env.inst.sync() == 0
+    old_manifest = open(os.path.join(env.cloud.root, "manifests", "1.0.0.json"), "rb").read()
+    env.cloud.publish("1.0.1", {"mods/a.jar": b"A", "mods/new.jar": b"NEW"})
+    with open(os.path.join(env.cloud.root, "manifests", "1.0.1.json"), "wb") as f:
+        f.write(old_manifest)
+    logs = []
+    assert env.inst.sync(log=logs.append) == client.EXIT_GENERIC
+    assert env.inst.state()["version"] == "1.0.0"
+    assert any("指针与版本清单不一致" in line for line in logs)
+
+
+def test_empty_release_cannot_report_success(env) -> None:
+    env.cloud.publish("1.0.0", {})
+    assert env.inst.sync() == client.EXIT_GENERIC
+    assert not env.inst.state()
+
+
+@pytest.mark.parametrize("damage", ["remove", "corrupt"])
+def test_final_verification_prevents_false_success(env, monkeypatch, damage) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    assert env.inst.sync() == 0
+    previous_state = env.inst.state()
+    env.cloud.publish("1.0.1", {"mods/a.jar": b"A", "mods/new.jar": b"NEW"})
+    apply = client._apply_file
+
+    def apply_and_damage(src, dst):
+        apply(src, dst)
+        if damage == "remove":
+            env.inst.remove_mods(["a.jar"])
+        else:
+            env.inst.put_mods({"a.jar": b"BROKEN"})
+
+    monkeypatch.setattr(client, "_apply_file", apply_and_damage)
+    logs = []
+    assert env.inst.sync(log=logs.append) == client.EXIT_GENERIC
+    assert env.inst.state() == previous_state
+    assert any("复核失败" in line and "mods/a.jar" in line for line in logs)
+    assert not any("同步完成" in line for line in logs)
+
+
+def test_manifest_request_also_bypasses_cache(env, monkeypatch) -> None:
+    env.cloud.publish("1.0.0", {"mods/a.jar": b"A"})
+    fetch = client.fetch_json
+    calls = []
+
+    def record(url, **kwargs):
+        calls.append((url, kwargs.get("cache_bust")))
+        return fetch(url, **kwargs)
+
+    monkeypatch.setattr(client, "fetch_json", record)
+    assert env.inst.sync() == 0
+    assert len(calls) == 2
+    assert all(bust for _, bust in calls)
+
+
+@pytest.mark.parametrize("value", [0, -1, 65, True, "8"])
+def test_invalid_download_connections_fail_before_writes(env, value) -> None:
+    cfg_path = client.config_path(env.inst.root)
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    cfg["downloadConnections"] = value
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    assert env.inst.sync() == client.EXIT_GENERIC
+    assert env.cloud.hits == []
+
+
 def test_three_incremental_versions(env) -> None:
     env.cloud.publish("1.0.0", {"mods/a.jar": b"A", "mods/b.jar": b"B"})
     assert env.inst.sync() == 0
@@ -342,6 +423,8 @@ def test_proxy_env_used(env, monkeypatch) -> None:
         monkeypatch.delenv("HTTPS_PROXY", raising=False)
         monkeypatch.delenv("no_proxy", raising=False)
         monkeypatch.delenv("NO_PROXY", raising=False)
+        # urlopen 的全局 opener 会缓存先前用例的代理；环境变更后必须重建。
+        monkeypatch.setattr(urllib.request, "_opener", None)
         assert env.inst.sync() == 0
         assert srv.count > 0, "应经由 HTTP_PROXY 访问对象存储"
     finally:
@@ -658,6 +741,89 @@ def test_platform_url_used_when_index_hits(env, plat, monkeypatch) -> None:
     assert any("/platform/a.jar" in h for h in plat.hits)     # 走了平台直链
     assert not any(sha_a in h for h in env.blob_hits())       # 完全没碰对象存储 blob
     assert prefix                                  # 前缀确实被用到（防误放行）
+
+
+@pytest.mark.parametrize("source", ["modrinth", "curseforge"])
+def test_platform_large_files_use_parallel_ranges(env, plat, monkeypatch, source) -> None:
+    big = os.urandom(4 * 1024 * 1024)
+    env.cloud.publish("1.0.0", {"mods/big.jar": big})
+    _allow_plat(monkeypatch, plat)
+    url = _platform_file(plat, "big.jar", big)
+    sha = hashlib.sha256(big).hexdigest()
+    _write_index(env, {sha: {"source": source, "downloadUrl": url}})
+    segment = http_download._fetch_segment
+    ranges = []
+
+    def record(url, dst, start, end, timeout=60, progress=None):
+        ranges.append((start, end))
+        return segment(url, dst, start, end, timeout, progress)
+
+    monkeypatch.setattr(http_download, "_fetch_segment", record)
+    assert env.inst.sync() == 0
+    assert env.inst.mod_bytes("big.jar") == big
+    assert len(ranges) == 4
+    assert sum(end - start + 1 for start, end in ranges) == len(big)
+    assert not env.blob_hits()
+
+
+def test_platform_without_range_falls_back_to_single_connection(env, plat, monkeypatch) -> None:
+    big = os.urandom(3 * 1024 * 1024)
+    env.cloud.publish("1.0.0", {"mods/big.jar": big})
+    _allow_plat(monkeypatch, plat)
+    plat._srv.no_range = True
+    url = _platform_file(plat, "big.jar", big)
+    sha = hashlib.sha256(big).hexdigest()
+    _write_index(env, {sha: {"source": "curseforge", "downloadUrl": url}})
+    assert env.inst.sync() == 0
+    assert env.inst.mod_bytes("big.jar") == big
+    assert not env.blob_hits()
+
+
+def test_download_connection_budget_and_file_concurrency(tmp_path, monkeypatch) -> None:
+    active = 0
+    peak = 0
+    lock = threading.Lock()
+    barrier = threading.Barrier(8, timeout=10)
+    segments_seen = []
+
+    def download(url, dst, sha, size, verify, **kwargs):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            segments_seen.append(kwargs["segments"])
+        try:
+            barrier.wait()
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(http_download, "download_one", download)
+    tasks = [{"path": "mods/%d.jar" % i, "sha256": "%064x" % i,
+              "size": 4 * 1024 * 1024, "altUrl": "https://cdn.modrinth.com/%d" % i}
+             for i in range(8)]
+    http_download.download_blobs(tasks, "https://unused.invalid", str(tmp_path),
+                                 total_slots=16)
+    assert peak == 8
+    assert segments_seen == [2] * 8
+
+
+def test_range_ignored_does_not_read_entire_file(tmp_path, monkeypatch) -> None:
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, size):
+            pytest.fail("不支持 Range 时不应读取整个响应")
+
+    monkeypatch.setattr(http_download, "_open", lambda *args: Response())
+    with pytest.raises(http_download.DownloadError, match="不支持分片"):
+        http_download._fetch_segment("https://unused.invalid", str(tmp_path / "part"), 0, 99)
 
 
 def test_platform_failure_falls_back_silently(env, plat, monkeypatch) -> None:

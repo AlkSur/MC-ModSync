@@ -29,14 +29,15 @@ def main(argv) -> int:
     ap.add_argument("--config", default=a["config"])
     ap.add_argument("--exe", default="")
     ap.add_argument("--no-exe", action="store_true")
-    ap.add_argument("--fallback", default=a["fallback"])
+    # 留空才能让 assemble 重建当前源码；传默认路径会被误当成外部指定产物。
+    ap.add_argument("--fallback", default="")
     ap.add_argument("--skip-verify", action="store_true", help="跳过产物内模块核验")
     args = ap.parse_args(argv[1:])
 
     try:
         res = packaging.assemble(args.config, args.out, repo=REPO,
                                  exe=args.exe or None, no_exe=args.no_exe,
-                                 fallback=args.fallback, skip_verify=args.skip_verify)
+                                 fallback=args.fallback or None, skip_verify=args.skip_verify)
     except packaging.PackagingError as e:
         sys.stderr.write("错误: %s\n" % e)
         return 1
