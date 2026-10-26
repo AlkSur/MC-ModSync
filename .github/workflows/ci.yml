@@ -10,6 +10,11 @@ env:
   # 开启 UTF-8 模式后对所有 job / step 生效，无需改动任何脚本。
   PYTHONUTF8: "1"
   PYTHONIOENCODING: "utf-8"
+  MCMS_LIVE: "0"
+  GIT_AUTHOR_NAME: "MC-ModSync CI"
+  GIT_AUTHOR_EMAIL: "ci@example.invalid"
+  GIT_COMMITTER_NAME: "MC-ModSync CI"
+  GIT_COMMITTER_EMAIL: "ci@example.invalid"
 
 jobs:
   test:
@@ -66,7 +71,7 @@ jobs:
         run: python tools/build_client.py
 
       - name: 组装分发包（构建 exe + 渲染 config + SHA256SUMS）
-        run: python tools/package_client.py
+        run: python tools/package_client.py --config tests/fixtures/pack.ci.json
 
       - name: C 端测试（含真实 bat 双击链路、路径含空格/中文）
         run: python -m pytest tests/test_client.py tests/test_client_main.py tests/test_entries.py tests/test_packaged_client.py -q
@@ -74,6 +79,6 @@ jobs:
       - name: 上传分发包工件
         uses: actions/upload-artifact@v4
         with:
-          name: client-package
+          name: client-package-ci-demo
           path: dist/client-package/
           if-no-files-found: error

@@ -153,8 +153,10 @@ def build_zip(modules) -> bytes:
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.external_attr = 0o644 << 16
             info.compress_type = zipfile.ZIP_DEFLATED
-            with open(path, "rb") as f:
-                z.writestr(info, f.read())
+            # Git normalizes text to LF. Local Windows files may still contain
+            # CRLF; embed the same source bytes on every build platform.
+            with open(path, "r", encoding="utf-8") as f:
+                z.writestr(info, f.read().encode("utf-8"))
     return buf.getvalue()
 
 

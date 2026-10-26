@@ -93,11 +93,20 @@ def test_cli_menu_entry(monkeypatch, args, config):
     assert seen == [config]
 
 
-def test_windows_launcher_opens_real_menu_and_exits_without_action():
+def test_windows_launcher_opens_real_menu_and_exits_without_action(tmp_path):
     import os
+    import shutil
+    import sys
     if os.name != 'nt':
         pytest.skip('Windows launcher')
-    root = Path(__file__).resolve().parents[1]
+    source = Path(__file__).resolve().parents[1]
+    root = tmp_path / 'OP test'
+    root.mkdir()
+    shutil.copy2(source / '启动OP端.bat', root)
+    shutil.copytree(source / 'mcmodsync', root / 'mcmodsync',
+                    ignore=shutil.ignore_patterns('__pycache__'))
+    subprocess.run([sys.executable, '-m', 'venv', '--system-site-packages', str(root / '.venv')],
+                   check=True, capture_output=True, timeout=60)
     result = subprocess.run(['cmd', '/d', '/c', str(root / '启动OP端.bat')],
                             cwd=root.parent, input='0\n', capture_output=True,
                             encoding='utf-8', errors='replace', timeout=30)

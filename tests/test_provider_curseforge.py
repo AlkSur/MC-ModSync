@@ -25,6 +25,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _load_live_key() -> str:
+    if os.environ.get("MCMS_LIVE") != "1":
+        return ""
     key = os.environ.get("MCMS_CF_KEY", "").strip()
     if key:
         return key

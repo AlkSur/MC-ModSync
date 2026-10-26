@@ -1,0 +1,9 @@
+{
+  "packId": "ci-demo-pack",
+  "client": {
+    "manifestUrl": "https://example.invalid/ci/manifest.json",
+    "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "downloadConcurrency": 8,
+    "downloadConnections": 32
+  }
+}
