@@ -26,5 +26,15 @@ while :; do
 done
 echo ""
 if [ "$RC" = "0" ]; then echo "=== 更新完成，请手动启动 PCL2 或 HMCL ==="; else echo "=== 更新失败，退出码 $RC，日志见 _updater/logs/ ==="; fi
-echo "$@" | grep -q -- "--no-pause" || read -r -p "按回车退出..."
+MODSYNC_PAUSE=1
+for MODSYNC_ARG in "$@"; do
+  if [ "$MODSYNC_ARG" = "--no-pause" ]; then
+    MODSYNC_PAUSE=0
+    break
+  fi
+done
+if [ "$MODSYNC_PAUSE" = "1" ]; then
+  printf '%s' '按回车退出...'
+  IFS= read -r MODSYNC_REPLY || :
+fi
 exit $RC

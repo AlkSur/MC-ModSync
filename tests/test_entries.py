@@ -56,6 +56,14 @@ def test_sh_is_lf() -> None:
 SH_BIN = shutil.which("sh")
 
 
+def _shell_variants():
+    candidates = [SH_BIN, shutil.which("dash"), shutil.which("bash")]
+    if os.name == "nt" and SH_BIN:
+        candidates.append(os.path.abspath(os.path.join(os.path.dirname(SH_BIN),
+                                                       "..", "usr", "bin", "dash.exe")))
+    return list(dict.fromkeys(path for path in candidates if path and os.path.isfile(path))) or [None]
+
+
 def _make_instance(tmp_path, name="实例 目录"):
     inst = tmp_path / name
     (inst / "_updater").mkdir(parents=True)
@@ -88,17 +96,19 @@ def test_sh_passes_args_and_exit_code(tmp_path) -> None:
 
 
 @pytest.mark.skipif(SH_BIN is None, reason="无 sh")
-def test_sh_success_message_and_pause_gate(tmp_path) -> None:
+@pytest.mark.parametrize("shell_bin", _shell_variants())
+def test_sh_success_message_and_pause_gate(tmp_path, shell_bin) -> None:
     inst = _make_instance(tmp_path, name="中文 目录")
     _stub(inst, 0)
-    ok = subprocess.run([SH_BIN, str(inst / "更新mod.sh"), "--no-pause"],
+    ok = subprocess.run([shell_bin, str(inst / "更新mod.sh"), "--no-pause"],
                         capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(tmp_path))
     assert ok.returncode == 0
     assert "更新完成，请手动启动 PCL2 或 HMCL" in ok.stdout
 
     # 门控行为: 不带 --no-pause 时脚本停在 read 等待输入（父进程保持 stdin 写端 -> 不退出）
     import time
-    p = subprocess.Popen([SH_BIN, str(inst / "更新mod.sh")], stdin=subprocess.PIPE,
+    # A longer, unrelated argument containing the flag must not disable pause.
+    p = subprocess.Popen([shell_bin, str(inst / "更新mod.sh"), "--notes=--no-pause"], stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                          cwd=str(tmp_path))
     try:
@@ -108,13 +118,14 @@ def test_sh_success_message_and_pause_gate(tmp_path) -> None:
         p.stdin.flush()
         out, _ = p.communicate(timeout=20)
         assert p.returncode == 0, out
+        assert "按回车退出" in out
     finally:
         if p.poll() is None:
             p.kill()
             p.wait(timeout=20)
 
     # 带 --no-pause 时不得阻塞（3 秒内应已退出）
-    q = subprocess.Popen([SH_BIN, str(inst / "更新mod.sh"), "--no-pause"],
+    q = subprocess.Popen([shell_bin, str(inst / "更新mod.sh"), "--no-pause"],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", cwd=str(tmp_path))
     try:
@@ -124,6 +135,18 @@ def test_sh_success_message_and_pause_gate(tmp_path) -> None:
         if q.poll() is None:
             q.kill()
             q.wait(timeout=20)
+
+
+@pytest.mark.skipif(SH_BIN is None, reason="无 sh")
+@pytest.mark.parametrize("shell_bin", _shell_variants())
+def test_sh_pause_with_closed_input_preserves_failure_code(tmp_path, shell_bin) -> None:
+    inst = _make_instance(tmp_path)
+    _stub(inst, 7)
+    result = subprocess.run([shell_bin, str(inst / "更新mod.sh")], input="",
+                            capture_output=True, encoding="utf-8", errors="replace",
+                            cwd=str(tmp_path), timeout=10)
+    assert result.returncode == 7, result.stdout + result.stderr
+    assert "按回车退出" in result.stdout
 
 
 @pytest.mark.skipif(SH_BIN is None, reason="无 sh")
