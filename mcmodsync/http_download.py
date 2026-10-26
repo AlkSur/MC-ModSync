@@ -15,6 +15,7 @@ Spec section: 7.2 http_download.py, 9.2-9
 """
 from __future__ import annotations
 
+import http.client
 import os
 import time
 import urllib.error
@@ -34,7 +35,7 @@ DEFAULT_CONCURRENCY = 8             # 同时下载的文件数
 DEFAULT_TOTAL_SLOTS = 32             # 分片下载的总连接预算（所有文件共享）
 SEGMENT_MIN_SIZE = 2 * 1024 * 1024   # 小于此值不分片（分片反而多几次 RTT）
 SEGMENT_SIZE = 1024 * 1024           # 单个分片的目标大小
-SEGMENT_MAX = 8                      # 单文件最多分几片
+SEGMENT_MAX = 32                     # 单文件可使用剩余总预算，批量下载时按文件数均分
 
 # 平台直链（Modrinth / CurseForge 官方 CDN）尝试参数：只试 1 次、短超时、不重试。
 # 这些站点在国内连通性不稳定，必须"快速失败 + 静默回落"，
@@ -104,37 +105,55 @@ def _auto_segments(size: int, limit: int = SEGMENT_MAX,
     return max(1, min(limit, n))
 
 
+class RangeUnsupported(DownloadError):
+    """The server cannot safely supply requested byte ranges."""
+
+
 def _fetch_segment(url: str, dst: str, start: int, end: int,
                    timeout: int = 60, progress: ProgressFn = None) -> int:
-    """下载 [start, end] 字节区间到 dst；要求源站返回 206，否则视为不支持分片。"""
+    """Retry only the failed range; retain bytes already received in this part."""
     opener = _build_opener()
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "MC-ModSync-C/2.0",
-        "Range": "bytes=%d-%d" % (start, end),
-    })
     got = 0
-    with _open(opener, req, timeout) as resp, open(dst, "wb") as f:
-        status = int(resp.status)
-        # 不支持 Range 时立即回退，避免每个分片重复下载整个大文件。
-        if status != 206:
-            raise DownloadError(EXIT_NETWORK, "源站不支持分片（HTTP %d）" % status)
-        content_range = str(resp.headers.get("Content-Range") or "")
-        if not content_range.startswith("bytes %d-%d/" % (start, end)):
-            raise DownloadError(EXIT_NETWORK, "源站返回了错误的分片范围: %s" % content_range)
-        while True:
-            block = resp.read(256 * 1024)
-            if not block:
-                break
-            f.write(block)
-            got += len(block)
-            if progress:                     # 埋点：上报本块字节数（不改控制流）
-                progress(len(block))
-    if status != 206:
-        raise DownloadError(EXIT_NETWORK, "源站不支持分片（HTTP %d）" % status)
     want = end - start + 1
-    if got != want:
-        raise DownloadError(EXIT_NETWORK, "分片长度不符: 期望 %d 实得 %d" % (want, got))
-    return status
+    last_error = None
+    with open(dst, "wb") as output:
+        for attempt in range(3):
+            offset = start + got
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "MC-ModSync-C/2.0",
+                "Accept-Encoding": "identity",
+                "Range": "bytes=%d-%d" % (offset, end),
+            })
+            try:
+                with _open(opener, req, timeout) as resp:
+                    status = int(resp.status)
+                    if status != 206:
+                        raise RangeUnsupported(EXIT_NETWORK, "源站不支持分片（HTTP %d）" % status)
+                    content_range = str(resp.headers.get("Content-Range") or "")
+                    if not content_range.startswith("bytes %d-%d/" % (offset, end)):
+                        raise RangeUnsupported(EXIT_NETWORK, "源站返回了错误的分片范围: %s" % content_range)
+                    while got < want:
+                        block = resp.read(min(64 * 1024, want - got))
+                        if not block:
+                            break
+                        output.write(block)
+                        got += len(block)
+                        if progress:
+                            progress(len(block))
+                    if got == want:
+                        return 206
+                    raise DownloadError(EXIT_NETWORK, "分片长度不符: 期望 %d 实得 %d" % (want, got))
+            except RangeUnsupported:
+                raise
+            except urllib.error.HTTPError as error:
+                if error.code not in (408, 429, 500, 502, 503, 504):
+                    raise
+                last_error = error
+            except (OSError, urllib.error.URLError, http.client.HTTPException, DownloadError) as error:
+                last_error = error
+            if attempt < 2:
+                time.sleep(0.25 * (attempt + 1))
+    raise DownloadError(EXIT_NETWORK, "分片重试耗尽: %s" % last_error)
 
 
 def _fetch_segmented(url: str, dst: str, size: int, segments: int,
@@ -142,8 +161,8 @@ def _fetch_segmented(url: str, dst: str, size: int, segments: int,
                      log: Optional[Callable[[str], None]] = None,
                      progress: ProgressFn = None,
                      trace: Optional[Callable[[str], None]] = None) -> int:
-    """多分片并发下载后按序合并到 dst。任一分片失败即抛异常（由上层回退单连接）。"""
-    seg_size = max(segment_size, (size + segments - 1) // segments)
+    """以固定小块队列并发下载并按序合并；连接数受 segments 限制。"""
+    seg_size = max(1, segment_size)
     ranges: List = []
     pos = 0
     while pos < size:
@@ -153,7 +172,10 @@ def _fetch_segmented(url: str, dst: str, size: int, segments: int,
 
     parts: List[str] = []
     try:
-        with ThreadPoolExecutor(max_workers=max(1, len(ranges))) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, min(segments, len(ranges)))) as pool:
+            detail = trace or log
+            if detail:
+                detail("启动分片下载: %d 条连接，%d 个分块" % (min(segments, len(ranges)), len(ranges)))
             futures = []
             for i, (s, e) in enumerate(ranges):
                 p = "%s.p%02d" % (dst, i)
@@ -195,7 +217,7 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
                  timeout: int = 60) -> None:
     """Download one blob with retries; verify via verify_fn(dst) on final path.
 
-    segments > 1 时优先多分片并发下载（大文件提速显著）；分片失败自动回退单连接，
+    segments > 1 时优先多分片并发下载；临时失败重试分片，不支持 Range 才回退单连接，
     两条路径下载的都写入同一个 tmp，校验与原子落位逻辑完全一致。
 
     on_bytes / on_reset 仅为**控制台渲染埋点**：上报已读字节与“重新计数”信号，
@@ -206,7 +228,7 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
     d = os.path.dirname(dst)
     os.makedirs(d, exist_ok=True)
     tmp = os.path.join(d, ".%s.tmp-%d" % (os.path.basename(dst), os.getpid()))
-    # segments: 0=自动（默认上限 8 片）；1=强制单连接；>1=该文件的分片上限
+    # segments: 0=自动（默认上限 32）；1=强制单连接；>1=该文件连接上限
     limit = segments if segments > 0 else SEGMENT_MAX
     use_segments = 1 if segments == 1 else _auto_segments(expected_size, limit)
     delay = 1.0
@@ -223,9 +245,9 @@ def download_one(url: str, dst: str, expected_sha: str, expected_size: int,
                     status = _fetch_segmented(url, tmp, expected_size, use_segments,
                                               log=log, progress=on_bytes, trace=trace,
                                               timeout=timeout)
-                except Exception as e:          # noqa: BLE001  回退单连接
-                    if log:
-                        log("分片下载未成功，改用单连接: %s" % e)
+                except RangeUnsupported as e:   # 只有明确不支持 Range 才回退单连接
+                    if detail:
+                        detail("源站不支持可靠分片，改用单连接: %s" % e)
                     if os.path.exists(tmp):
                         os.remove(tmp)
                     if on_reset:                # 埋点：回退单连接后重新计数

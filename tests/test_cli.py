@@ -128,7 +128,8 @@ def test_main_package_client_no_exe_assembles(tmp_path, monkeypatch) -> None:
     from mcmodsync import packaging
 
     fb = tmp_path / "fallback.py"
-    fb.write_text("# fallback stub\n", encoding="utf-8")
+    fallback_text = "print('MC-ModSync 2.2.1')\n"
+    fb.write_text(fallback_text, encoding="utf-8")
     pack = tmp_path / "pack.json"
     pack.write_text(json.dumps({"packId": "demo-pack",
                                 "client": {"manifestUrl": "https://h/p/manifest.json",
@@ -139,7 +140,7 @@ def test_main_package_client_no_exe_assembles(tmp_path, monkeypatch) -> None:
     assert rc == 0
     assert (out / "更新mod.bat").is_file()
     assert (out / "更新mod.sh").is_file()
-    assert (out / "_updater" / "mcmodsync.py").read_text(encoding="utf-8") == "# fallback stub\n"
+    assert (out / "_updater" / "mcmodsync.py").read_text(encoding="utf-8") == fallback_text
     cfg = json.loads((out / "_updater" / "config.json").read_text(encoding="utf-8"))
     assert cfg["packId"] == "demo-pack" and cfg["schemaVersion"] == 1
     assert (out / "SHA256SUMS.txt").is_file()

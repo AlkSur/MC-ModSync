@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,21 @@ class PackagingError(Exception):
 
 def _die(msg: str) -> None:
     raise PackagingError(msg)
+
+
+def runtime_version(path: str, python: bool = False) -> str:
+    """Read the artifact's version in a fresh process, independent of OP imports."""
+    command = ([sys.executable, path] if python else [path]) + ["--version"]
+    try:
+        result = subprocess.run(command, capture_output=True, timeout=30,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        _die("无法检查 %s 的实际版本（%s）" % (os.path.basename(path), type(error).__name__))
+    text = result.stdout.decode("utf-8", "replace").strip()
+    match = re.fullmatch(r"MC-ModSync (\d+\.\d+\.\d+)", text)
+    if result.returncode or not match:
+        _die("%s 未能返回有效版本，请重新构建" % os.path.basename(path))
+    return match.group(1)
 
 
 def repo_assets(repo: str = REPO) -> Dict[str, str]:
@@ -261,9 +277,17 @@ def assemble(config_path: str, out: str, repo: str = REPO,
     with open(os.path.join(up, "config.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(cfg, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
-    from . import __version__
+    # The menu may have been opened before a source update. Its imported
+    # __version__ is stale; the freshly built artifact is authoritative.
+    version = runtime_version(os.path.join(up, "mcmodsync.py"), python=True)
+    packed = os.path.join(up, a["exe_name"])
+    if os.path.isfile(packed):
+        exe_version = runtime_version(packed)
+        if exe_version != version:
+            _die("exe 版本 %s 与备用脚本版本 %s 不一致，请使用同一份源码重新构建" % (exe_version, version))
+    log("程序版本核验通过: %s" % version)
     with open(os.path.join(up, "build-info.json"), "w", encoding="utf-8", newline="\n") as f:
-        json.dump({"version": __version__, "schemaVersion": 1}, f, sort_keys=True)
+        json.dump({"version": version, "schemaVersion": 1}, f, sort_keys=True)
         f.write("\n")
 
     sums = write_sha256sums(out)
