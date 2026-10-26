@@ -28,6 +28,8 @@ def current_pack_version():
 # ---- A 端（OP 工具）----
 A_ROOT = "MC-ModSync-A端-OP工具"
 A_FILES = [
+    "启动OP端.bat",
+    "启动OP端.sh",
     "pyproject.toml",
     "pack.example.json",
     "README.md",
@@ -46,7 +48,7 @@ A_README = """MC-ModSync · A 端（OP 工具）
 ================================
 
 【这是什么】
-  服主/OP 用的命令行工具：从平台拉 mod、推送服务端、发布客户端到对象存储。
+  服主/OP 用的数字菜单工具：从平台拉 mod、推送服务端、发布客户端到对象存储。
 
 【第一步：看教程】
   docs\\OP端使用教程.md      ← 从这里开始，讲清每一步怎么敲
@@ -54,6 +56,10 @@ A_README = """MC-ModSync · A 端（OP 工具）
 【第二步：装环境】（需要 Python 3.10 以上，只需做一次）
   python -m venv .venv
   .\\.venv\\Scripts\\python.exe -m pip install -e .
+
+【日常使用】
+  双击根目录的「启动OP端.bat」，选择数字即可操作。
+  Linux 使用 sh 启动OP端.sh。发布和推送均先预览再确认。
 
 【第三步：配置】
   1) 把 pack.example.json 复制一份，改名 pack.local.json，填好里面的

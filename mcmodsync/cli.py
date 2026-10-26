@@ -160,32 +160,8 @@ def doctor(cfg_path: str, repo_dir: str = ".", offline: bool = False,
 
     # 6. 对象存储往返 + 缓存头 + 匿名读
     if cfg is not None and not offline:
-        try:
-            from .storage.s3 import S3Store
-            import urllib.request
-
-            st = cfg["storage"]
-            doctor_prefix = st.get("prefix", "").rstrip("/") + "-doctor/"
-            store = S3Store(st["endpointUrl"], st.get("region", ""), st["bucket"],
-                            doctor_prefix,
-                            st["accessKey"], st["secretKey"], bool(st.get("pathStyle", True)))
-            store.put_bytes("probe.txt", b"doctor", "no-cache, no-store, must-revalidate")
-            ok = store.head("probe.txt") and store.get_text("probe.txt") == "doctor" \
-                and store.get_cache_control("probe.txt") == "no-cache, no-store, must-revalidate"
-            add("对象存储 put/head/get + 缓存头", ok, "" if ok else "往返或缓存头不一致")
-            base = (st.get("publicBaseUrl") or "").rstrip("/")
-            if base:
-                url = "%s/%sprobe.txt" % (base, doctor_prefix.lstrip("/"))
-                try:
-                    with urllib.request.urlopen(url, timeout=15) as r:
-                        anon = r.read() == b"doctor"
-                except Exception:
-                    anon = False
-                add("对象存储匿名读", anon, url)
-            store.delete("probe.txt")
-            add("对象存储 delete", not store.head("probe.txt"), "")
-        except Exception as e:
-            add("对象存储往返", False, str(e))
+        from .storage_probe import check_storage
+        check_storage(cfg["storage"], add)
     else:
         add("对象存储往返 + 缓存头", None, "offline 或配置不可用，跳过")
 
@@ -366,7 +342,7 @@ def _common_parent() -> argparse.ArgumentParser:
     覆盖回 False（否则 `mcmodsync --no-color doctor` 会失效）。
     """
     c = argparse.ArgumentParser(add_help=False)
-    c.add_argument("-c", "--config", default=None,
+    c.add_argument("-c", "--config", default=argparse.SUPPRESS,
                    help="配置文件（默认 ./pack.local.json）")
     c.add_argument("--no-color", dest="no_color", action="store_true",
                    default=argparse.SUPPRESS,
@@ -379,8 +355,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-c", "--config", default=None, help="配置文件（默认 ./pack.local.json）")
     p.add_argument("--no-color", action="store_true",
                    help="关闭彩色输出（重定向到日志文件时用）")
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command")
     C = _common_parent()
+    sub.add_parser("menu", parents=[C], help="打开 OP 数字菜单")
 
     k = sub.add_parser("keygen", parents=[C], help="生成 Ed25519 密钥对")
     k.add_argument("--key-file", default=DEFAULT_KEY_FILE)
@@ -465,6 +442,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.config = args_cfg
     if getattr(args, "no_color", False):
         console.disable_color()
+    if args.command in (None, "menu"):
+        from .op_menu import run_menu
+        return run_menu(args_cfg)
     if args.command in _RUN_HEADER_CMDS:
         print_run_header(args.command)
 
